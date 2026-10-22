@@ -73,6 +73,9 @@ jobs:
       working-directory: ./docs
       run: make current-docs
 
+    - name: Stage browser demos
+      run: bash .github/actions/_lib/stage-browser-demos.sh
+
     - name: Upload docs artifact
       uses: actions/upload-artifact@v7
       with:
@@ -86,7 +89,7 @@ jobs:
     # run on deploy branches to create multi-version docs
     if: needs.doc-build-type.outputs.trigger-deploy == 'true'
     env:
-      DOCS_DEFAULT_REF: v3.0.0-EA
+      DOCS_DEFAULT_REF: develop
 
     steps:
     - name: Checkout code
@@ -121,6 +124,9 @@ jobs:
     - name: Verify default docs version
       working-directory: ./docs
       run: grep -Fq "url=./$DOCS_DEFAULT_REF/index.html" _build/index.html
+
+    - name: Stage browser demos
+      run: bash .github/actions/_lib/stage-browser-demos.sh
 
     - name: Upload GitHub Pages artifact
       uses: actions/upload-pages-artifact@v4

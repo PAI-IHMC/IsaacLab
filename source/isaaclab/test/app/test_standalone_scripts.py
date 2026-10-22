@@ -21,6 +21,7 @@ launches; ``ISAACLAB_STANDALONE_SCREENSHOT_DELAY`` controls when.
 import ast
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -79,6 +80,129 @@ def _python(source: str) -> list[str]:
 # Script contracts.
 
 
+def test_haply_scene_config_stays_lazy_until_scene_construction():
+    """The Haply module must configure its robot without constructing an articulation."""
+    script = script_cases.ROOT / "examples" / "haply_teleoperation.py"
+    code = """
+import runpy
+import sys
+
+from isaaclab.assets import ArticulationCfg
+
+script = sys.argv[1]
+sys.argv = [script, '--physics', 'newton_mjwarp', '--visualizer', 'none']
+namespace = runpy.run_path(script)
+scene_cfg = namespace['FrankaHaplySceneCfg'](num_envs=1, env_spacing=2.0)
+assert isinstance(scene_cfg.robot, ArticulationCfg)
+assert scene_cfg.robot.init_state.pos == (-0.02, 0.0, 1.05)
+assert scene_cfg.robot.spawn.activate_contact_sensors is True
+assert scene_cfg.robot.spawn.variants['Physics'] == 'mujoco'
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code, str(script)], capture_output=True, text=True, timeout=60, check=False
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    "script_path",
+    [
+        "scripts/tutorials/08_mpm/material_parameters.py",
+        "scripts/tutorials/08_mpm/rigid_body_equivalence.py",
+        "scripts/tutorials/08_mpm/surface_reconstruction.py",
+        "examples/demos/teapot_fill.py",
+        "examples/mpm/newton_mpm_granular.py",
+        "examples/mpm/newton_mpm_twoway_coupling.py",
+        "examples/mpm/g1_coupling.py",
+    ],
+)
+def test_mpm_programs_preserve_concurrent_visualizer_selection(script_path):
+    """Selecting both Newton viewers must preserve each requested configuration."""
+    pytest.importorskip("isaaclab_newton")
+    pytest.importorskip("isaaclab_visualizers")
+    if script_path.endswith("g1_coupling.py"):
+        pytest.importorskip("isaaclab_tasks")
+        pytest.importorskip("isaaclab_contrib")
+    script = script_cases.ROOT / script_path
+    code = """
+import runpy
+import sys
+
+script = sys.argv[1]
+sys.argv = [script, '--visualizer', 'newton_gl,newton_rtx']
+if not script.endswith('surface_reconstruction.py'):
+    sys.argv.extend(['--voxel_size', '0.1'])
+namespace = runpy.run_path(script)
+if 'create_visualizer_cfgs' in namespace:
+    configs = namespace['create_visualizer_cfgs']()
+else:
+    import isaaclab_tasks
+    from isaaclab_tasks.utils import resolve_task_config
+    env_cfg, _ = resolve_task_config(
+        namespace['TASK'], 'rsl_rl_cfg_entry_point', play_mode=True,
+        overrides=('physics=newton_mjwarp',),
+    )
+    namespace['configure_environment'](env_cfg)
+    configs = env_cfg.sim.visualizer_cfgs
+assert [type(cfg).__name__ for cfg in configs] == ['NewtonGLVisualizerCfg', 'NewtonRTXVisualizerCfg']
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code, str(script)], capture_output=True, text=True, timeout=60, check=False
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_mpm_surface_reconstruction_defaults_to_newton_gl():
+    """The surface example must launch with base Newton dependencies by default."""
+    script = script_cases.ROOT / "scripts" / "tutorials" / "08_mpm" / "surface_reconstruction.py"
+    code = """
+import runpy
+import sys
+
+script = sys.argv[1]
+sys.argv = [script]
+namespace = runpy.run_path(script)
+assert namespace['args_cli'].visualizer == ['newton_gl']
+sys.argv = [script, '--visualizer', 'newton_rtx']
+namespace = runpy.run_path(script)
+assert namespace['args_cli'].visualizer == ['newton_rtx']
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code, str(script)], capture_output=True, text=True, timeout=60, check=False
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    "script_path",
+    [
+        "examples/mpm/newton_mpm_granular.py",
+        "scripts/tutorials/08_mpm/material_parameters.py",
+        "scripts/tutorials/08_mpm/surface_reconstruction.py",
+    ],
+)
+def test_mpm_demos_use_solver_contact_response(script_path):
+    """Physical-response examples must not opt into post-step particle projection."""
+    pytest.importorskip("isaaclab_newton")
+    script = script_cases.ROOT / script_path
+    code = """
+import runpy
+import sys
+
+script = sys.argv[1]
+sys.argv = [script, '--visualizer', 'none']
+if script.endswith('surface_reconstruction.py'):
+    sys.argv.extend(['--fluid_render_mode', 'particles'])
+namespace = runpy.run_path(script)
+config = namespace['create_sim_cfg']()
+assert config.physics.solver_cfg.project_outside_colliders is False
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code, str(script)], capture_output=True, text=True, timeout=60, check=False
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_every_standalone_script_has_a_launch_contract_or_exemption():
     """Packaged programs must stop themselves; other scripts must be runnable or explicitly exempted."""
     not_finite = [spec.relative_path for spec in SPECS if spec.program is not None and not spec.finite]
@@ -106,7 +230,7 @@ def test_every_packaged_script_is_registered_for_cli_launch():
 def test_demo_browser_documents_options_for_each_demo():
     """Every demo card must match a demo and offer exactly the options the demo accepts."""
     docs_source = script_cases.ROOT / "docs/source"
-    demos_page = (docs_source / "setup/demos.rst").read_text(encoding="utf-8")
+    demos_page = (docs_source / "isaaclab/demos.rst").read_text(encoding="utf-8")
     documented_entries = {}
     for card in re.findall(r'(?s)<button[^>]+data-demo-id="[^"]+"[^>]*>', demos_page):
         attributes = dict(re.findall(r'data-demo-([\w-]+)="([^"]*)"', card))

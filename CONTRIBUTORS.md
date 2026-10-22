@@ -59,6 +59,7 @@ Guidelines for modifications:
 * Andrei Aristarkhov
 * Andrej Orsula
 * Anke Zhao
+* Anthony Clark
 * Anton Bjørndahl Mortensen
 * Antonin Raffin
 * Arjun Bhardwaj
@@ -80,6 +81,7 @@ Guidelines for modifications:
 * Chenyu Yang
 * Connor Smith
 * CY (Chien-Ying) Chen
+* cyanseek
 * David Cao-Mueller
 * David Leon
 * David Yang
@@ -105,6 +107,7 @@ Guidelines for modifications:
 * Harsh Patel
 * Henry Hu
 * HoJin Jeon
+* Hong Wang
 * Hongwei Xiong
 * Hongyu Li
 * Hougant Chen

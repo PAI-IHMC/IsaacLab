@@ -5,6 +5,7 @@
 
 import argparse
 import importlib.metadata
+import os
 import sys
 from pathlib import Path
 
@@ -27,9 +28,12 @@ from .commands.misc import (
     command_test,
 )
 from .utils import (
+    DEFAULT_ISAAC_SIM_PATH,
     ISAACLAB_ROOT,
+    is_isaac_sim_source_build,
     is_windows,
     run_python_command,
+    runs_isaac_sim_python,
 )
 
 _TASK_ENTRY_POINT_GROUP = "isaaclab.tasks"
@@ -41,8 +45,12 @@ def _exit_on_error(status: int) -> None:
         raise SystemExit(status)
 
 
-def _load_external_tasks() -> None:
-    """Import task packages registered by installed downstream projects."""
+def load_external_tasks() -> None:
+    """Import task packages registered by installed downstream projects.
+
+    Load the ``isaaclab.tasks`` entry points before looking up registered task IDs.
+    Entry points should reference modules so repeated discovery uses Python's import cache.
+    """
     for entry_point in importlib.metadata.entry_points(group=_TASK_ENTRY_POINT_GROUP):
         entry_point.load()
 
@@ -184,6 +192,22 @@ def cli() -> None:
         "zero_agent": zero_agent,
         "random_agent": random_agent,
     }
+    # uv selects the environment; local Kit builds still need their native runtime paths.
+    # Delegate before importing tasks or simulator libraries, and avoid wrapping the child twice.
+    runtime_commands = {*subcommands, "list_envs", "demo", "example", "teleop"}
+    configured_path = os.environ.get("ISAAC_PATH")
+    if (
+        len(sys.argv) > 1
+        and sys.argv[1] in runtime_commands
+        and (DEFAULT_ISAAC_SIM_PATH / ("python.bat" if os.name == "nt" else "python.sh")).is_file()
+        and (
+            is_isaac_sim_source_build(DEFAULT_ISAAC_SIM_PATH)
+            or runs_isaac_sim_python(DEFAULT_ISAAC_SIM_PATH, sys.executable, os.environ.get("VIRTUAL_ENV"))
+        )
+        and (configured_path is None or Path(configured_path).resolve() != DEFAULT_ISAAC_SIM_PATH.resolve())
+    ):
+        run_python_command("-m", ["isaaclab", *sys.argv[1:]], check=True)
+        return
     if len(sys.argv) > 1 and sys.argv[1] == "list_envs":
         list_envs(sys.argv[2:])
         return
@@ -194,7 +218,7 @@ def cli() -> None:
         example(sys.argv[2:])
         return
     if len(sys.argv) > 1 and sys.argv[1] in subcommands:
-        _load_external_tasks()
+        load_external_tasks()
         subcommands[sys.argv[1]](sys.argv[2:])
         return
     if len(sys.argv) > 1 and sys.argv[1] == "teleop":

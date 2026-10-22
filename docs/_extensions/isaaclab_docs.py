@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import csv
 import inspect
 import json
 import posixpath
@@ -82,6 +83,22 @@ def _parse_rst(directive: SphinxDirective, content: str) -> list[nodes.Node]:
     container = nodes.container()
     directive.state.nested_parse(lines, 0, container)
     return container.children
+
+
+class IsaacLabBenchmarkData(SphinxDirective):
+    """Embed benchmark snapshots so downloaded HTML works without an HTTP server."""
+
+    def run(self) -> list[nodes.Node]:
+        snapshots = {}
+        for channel in ("release", "develop"):
+            path = Path(self.env.srcdir) / "source/_static/benchmarks" / f"environment-performance-{channel}.csv"
+            self.env.note_dependency(str(path))
+            with path.open(encoding="utf-8", newline="") as stream:
+                snapshots[channel] = list(csv.DictReader(stream))
+        # Prevent CSV text from closing the script element, even inside a JSON string.
+        payload = json.dumps(snapshots).replace("<", "\\u003c")
+        html = f'<script type="application/json" data-environment-benchmark-rows>{payload}</script>'
+        return [nodes.raw("", html, format="html")]
 
 
 class IsaacLabCloneCommands(SphinxDirective):
@@ -266,6 +283,7 @@ class IsaacLabUvIsaacSimWheelInstall(SphinxDirective):
    uv pip install "isaaclab[isaacsim]=={self.config.isaaclab_wheel_version}" \\
      --overrides "{overrides_url}" \\
      --extra-index-url https://pypi.nvidia.com \\
+     --torch-backend cu130 \\
      --index-strategy unsafe-best-match
 """
         return _parse_rst(self, content)
@@ -287,6 +305,7 @@ class IsaacLabUvImportersWheelInstall(SphinxDirective):
    uv pip install "isaaclab[importers]=={self.config.isaaclab_wheel_version}" \\
      --overrides "{overrides_url}" \\
      --index https://pypi.nvidia.com \\
+     --torch-backend cu130 \\
      --index-strategy unsafe-best-match
 """
         return _parse_rst(self, content)
@@ -397,8 +416,10 @@ def _write_doc_redirects(app: Sphinx, exception: Exception | None) -> None:
             doc, separator, anchor = route.partition("#")
             page = Path(app.builder.get_outfilename(doc))
             if not page.is_file():
+                if is_multiversion_build:
+                    continue
                 raise ValueError(f"Documentation redirect target was not built: {doc}")
-            sections[f"#{fragment}"] = [
+            sections[f"#{fragment}" if fragment else ""] = [
                 posixpath.relpath(page.as_posix(), output.parent.as_posix()), separator + anchor
             ]
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -428,6 +449,7 @@ def setup(app):
     app.add_config_value("torchvision_version", "", "env")
     app.add_config_value("ovrtx_spec", "", "env")
     app.add_role("isaaclab-source", IsaacLabSourceLink())
+    app.add_directive("isaaclab-benchmark-data", IsaacLabBenchmarkData)
     app.add_directive("isaaclab-clone-commands", IsaacLabCloneCommands)
     app.add_directive("isaaclab-clone-https", IsaacLabCloneHttps)
     app.add_directive("isaaclab-kitless-install-snippet", IsaacLabKitlessInstallSnippet)

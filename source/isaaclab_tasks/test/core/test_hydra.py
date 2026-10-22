@@ -448,13 +448,29 @@ def test_collect_presets_root_level():
 
 def test_register_task_mixed_overrides():
     """Global presets, path presets, preset-path scalars, global scalars, and bare args apply together."""
-    overrides = ["presets=fast", "env.decimation=10", "env.backend=newton_mjwarp", "env.backend.dt=0.001", "--flag"]
-    env_cfg, agent_cfg, hydra_args = _register(PresetCfgEnvCfg(), overrides=overrides)
+    env = PresetCfgEnvCfg()
+    env.decimation = preset(default=4, fast=8)
+    env.range = preset(default=(0.6, 1.7), fast=(0.25, 2.5))
+    agent = PresetCfgAgentCfg()
+    agent.learning_rate = preset(default=3e-4, fast=1e-3)
+    overrides = [
+        "presets=fast",
+        "env.decimation=10",
+        "env.range=(0.1, 0.9)",
+        "agent.learning_rate=fast",
+        "agent.learning_rate=1e-5",
+        "env.backend=newton_mjwarp",
+        "env.backend.dt=0.001",
+        "--flag",
+    ]
+    env_cfg, agent_cfg, hydra_args = _register(env, agent, overrides)
     assert isinstance(env_cfg.observations, FastObservationsCfg)
     assert isinstance(agent_cfg.policy, FastPolicyCfg)
     assert isinstance(env_cfg.backend, NewtonCfg)
     assert env_cfg.backend.dt == 0.001
     assert env_cfg.decimation == 10
+    assert env_cfg.range == (0.1, 0.9)
+    assert agent_cfg.learning_rate == 1e-5
     assert hydra_args == ["--flag"]
 
 
@@ -1279,6 +1295,7 @@ def test_resolve_presets_errors_on_cyclic_preset_at_root():
 # =============================================================================
 
 from isaaclab.physics import PhysicsCfg as _RealPhysicsCfg  # noqa: E402
+from isaaclab.renderers import RendererCfg as _RealRendererCfg  # noqa: E402
 
 from isaaclab_tasks.utils.preset_target import PresetTarget  # noqa: E402
 
@@ -1340,6 +1357,21 @@ def test_resolve_active_presets_no_physics_hit_for_scalar_preset():
     # physics=newton_mjwarp (typed selector) must error.
     with pytest.raises(ValueError, match="physics=newton_mjwarp"):
         hydra_mod._validate_typed_presets({PresetTarget.PHYSICS: {"newton_mjwarp"}}, typed_hits)
+
+
+def test_register_task_explains_unavailable_typed_selectors(monkeypatch):
+    """A defaults-only task should report all selectors and explain how to use its defaults."""
+
+    @configclass
+    class Cfg:
+        physics: _PhysxPhysicsCfg = _PhysxPhysicsCfg()
+        renderer: _RealRendererCfg = _RealRendererCfg()
+
+    monkeypatch.setattr("isaaclab_tasks.utils.parse_cfg.load_cfg_from_registry", lambda *_: Cfg())
+    with pytest.raises(ValueError, match="registered default configuration") as error:
+        hydra_mod.register_task("test", None, overrides=["physics=isaacsim_physx", "renderer=isaacsim_rtx"])
+    assert "physics=isaacsim_physx" in str(error.value)
+    assert "renderer=isaacsim_rtx" in str(error.value)
 
 
 # =============================================================================

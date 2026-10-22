@@ -3,6 +3,59 @@ Changelog
 
 .. towncrier release notes start
 
+1.5.1 (2026-10-17)
+~~~~~~~~~~~~~~~~~~
+
+Fixed
+^^^^^
+
+* Fixed random-agent playback for direct multi-agent tasks by generating batched actions for each agent.
+
+
+1.5.0 (2026-10-14)
+~~~~~~~~~~~~~~~~~~
+
+Added
+^^^^^
+
+* Added :attr:`~isaaclab_rl.rsl_rl.RslRlMLPModelCfg.GaussianDistributionCfg.std_range` to clamp the standard
+  deviation of RSL-RL Gaussian output distributions, exposing the existing ``std_range`` argument of RSL-RL.
+
+Fixed
+^^^^^
+
+* Fixed TorchRL wrapper stepping when its output device differs from the simulation device.
+* Updated RLInf configuration loading for compatibility with Hydra 1.4.
+
+
+1.4.0 (2026-10-13)
+~~~~~~~~~~~~~~~~~~
+
+Added
+^^^^^
+
+* Added ``--no-resume_optimizer_state`` to RSL-RL training to restore checkpoint models and iteration with a fresh policy optimizer. RND retained its separate optimizer state.
+
+Fixed
+^^^^^
+
+* Allowed a further Ctrl+C during environment shutdown to force process termination.
+* Loaded installed downstream task registrations in direct distributed workers before selecting the training backend.
+
+
+1.3.5 (2026-10-10)
+~~~~~~~~~~~~~~~~~~
+
+Fixed
+^^^^^
+
+* Fixed ``--checkpoint pretrained`` rejecting tasks that run on a Newton Kamino solver, such as
+  ``Isaac-Fourbar-Pole-Swingup``. Newton solvers are named after their config class, for example
+  ``newtonkaminopadmm``.
+* Fixed RLinf playback launched with ``uv run`` failing when Ray attempted to upload working directories larger
+  than 512 MiB. The upload is now disabled for both RLinf training and playback.
+
+
 1.3.4 (2026-10-06)
 ~~~~~~~~~~~~~~~~~~
 

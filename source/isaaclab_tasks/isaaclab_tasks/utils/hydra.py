@@ -36,6 +36,7 @@ import hydra
 from hydra.core.config_store import ConfigStore
 from omegaconf import OmegaConf
 
+from isaaclab.app import validate_launch
 from isaaclab.envs.utils.spaces import replace_env_cfg_spaces_with_strings, replace_strings_with_env_cfg_spaces
 from isaaclab.utils import (
     configclass,
@@ -43,6 +44,7 @@ from isaaclab.utils import (
     replace_strings_with_slices,
     to_dict,
     update_from_dict,
+    validate,
 )
 
 from .preset_target import PresetTarget
@@ -550,9 +552,8 @@ def _validate_typed_presets(
     if missing:
         clauses = ", ".join(f"{label}={name}" for label, name in missing)
         raise ValueError(
-            f"Typed preset selector(s) {clauses} did not match any preset of that type for this task. "
-            "The name only matched unrelated presets (or nothing), so the backend would stay unchanged. "
-            "Use a task that declares it on the matching config, or drop the selector."
+            f"Typed preset selector(s) {clauses} did not match a selectable preset of that type for this task. "
+            "Choose a declared preset, or remove the selector(s) to use the task's registered default configuration."
         )
 
 
@@ -573,6 +574,7 @@ def register_task(
         play_mode: Whether to apply the play-mode overrides defined by the environment
             configuration's ``play_mode`` method after loading. Defaults to False.
         overrides: Optional Hydra arguments to compose instead of :data:`sys.argv`.
+            Non-string literals replace resolved preset values; strings at preset paths select alternatives.
 
     Returns:
         Tuple of ``(env_cfg, agent_cfg, hydra_args)`` where presets have been
@@ -607,7 +609,8 @@ def register_task(
         else:
             override_items.append((key, val, arg))
 
-    explicit = {key: val for key, val, _arg in override_items}
+    # Literal values replace the resolved value after presets and play-mode overrides.
+    explicit = {key: val for key, val, _arg in override_items if isinstance(_parse_val(val), str)}
     consumed_presets: set[str] = set()
     typed_hits: dict[str, set[PresetTarget]] = {}
     consumed_explicit: set[str] = set()
@@ -651,7 +654,22 @@ def register_task(
                 for name in fields:
                     name_to_paths.setdefault(name, []).append(full)
         known_names = set(name_to_paths)
-        unknown = {_normalize_preset_name(name, known_names) for name in unknown_presets} - known_names
+        normalized_names = {name: _normalize_preset_name(name, known_names) for name in unknown_presets}
+        unknown = set(normalized_names.values()) - known_names
+        unavailable_typed_names = {
+            normalized_names[name]
+            for target, names in requested_targets.items()
+            if not any(
+                target.matches(value)
+                for sec_presets in all_presets.values()
+                for fields in sec_presets.values()
+                for preset_name, value in fields.items()
+                if preset_name != "default"
+            )
+            for name in names
+            if name in normalized_names
+        }
+        unknown -= unavailable_typed_names
         if unknown:
             display = {n: p for n, p in name_to_paths.items() if n != "default"}
             raise ValueError(_format_unknown_presets_error(unknown, display))
@@ -666,11 +684,12 @@ def register_task(
 
     cfgs = {"env": env_cfg, "agent": agent_cfg}
     for key, val, arg in override_items:
-        if key in consumed_explicit:
+        value = _parse_val(val)
+        if key in consumed_explicit and isinstance(value, str):
             continue
         if key.startswith(("env.", "agent.")) and not key.endswith("+"):
             sec, path = key.split(".", 1)
-            _setattr(cfgs[sec], path, _parse_val(val))
+            _setattr(cfgs[sec], path, value)
         else:
             hydra_args.append(arg)
 
@@ -707,3 +726,83 @@ def _parse_val(s: str):
         return ast.literal_eval(s)
     except (ValueError, SyntaxError):
         return s
+
+
+_SELECTORS = ("physics", "renderer", "presets")
+
+
+def task_run_overrides(run: tuple[str | None, str | None, str | None]) -> list[str]:
+    """Return the command-line tokens of a ``(physics, renderer, presets)`` run, e.g. ``["physics=ovphysx"]``."""
+    return [f"{selector}={name}" for selector, name in zip(_SELECTORS, run) if name is not None]
+
+
+def _launchable_env_cfg(task_name: str, run: tuple[str | None, str | None, str | None]):
+    """Return the resolved and launch-scanned env config of *run*, or ``None`` if it is rejected."""
+    try:
+        env_cfg, _ = resolve_task_config(task_name, None, overrides=task_run_overrides(run))
+        validate(env_cfg)
+        validate_launch(env_cfg, {"livestream": 0})
+    except ValueError:
+        return None
+    return env_cfg
+
+
+def is_task_run_launchable(task_name: str, run: tuple[str | None, str | None, str | None]) -> bool:
+    """Return whether a ``(physics, renderer, presets)`` run of *task_name* resolves, passes the env config's
+    checks, and can launch headless.
+
+    A rejected combination is one whose resolution or validation raises :class:`ValueError`; any other
+    error propagates.
+    """
+    return _launchable_env_cfg(task_name, run) is not None
+
+
+def resolve_task_runs(task_name: str) -> list[tuple[str | None, str | None, str | None]] | None:
+    """Return the preset combinations of *task_name* that can launch, one per distinct config.
+
+    Each physics and renderer preset, or leaving that axis to the config, is crossed with each domain
+    preset in turn. Every combination is resolved, validated with the env config's own checks, and
+    checked with :func:`~isaaclab.app.validate_launch` for a headless launch without livestreaming. Combinations
+    that resolve to the same config, such as ``physics=physx`` and the backend it selects, are
+    reported once, by their most explicit spelling.
+
+    Only one domain preset is applied per run, so a task with several independent domain
+    presets supports more combinations than are listed. A rejected combination is one whose
+    resolution or validation raises :class:`ValueError`; any other error propagates.
+
+    Args:
+        task_name: Gymnasium task ID (e.g. ``"Isaac-Cartpole-Camera-Direct"``).
+
+    Returns:
+        ``(physics, renderer, presets)`` names per run, ``None`` on an axis left to the config. The
+        first run is the one the task uses when no names are passed, unless that run cannot launch.
+        ``None`` if the task's env config cannot be loaded.
+    """
+    from .preset_cli import enumerate_task_presets
+
+    preset_map = enumerate_task_presets(task_name)
+    if preset_map is None:
+        return None
+    typed = {*preset_map[PresetTarget.PHYSICS], *preset_map[PresetTarget.RENDERER]}
+    domains = [name for name in preset_map[PresetTarget.DOMAIN] if name not in typed]
+    candidates = [
+        (physics, renderer, domain)
+        for physics in [None, *preset_map[PresetTarget.PHYSICS]]
+        for renderer in [None, *preset_map[PresetTarget.RENDERER]]
+        for domain in [None, *domains]
+    ]
+
+    runs: dict[str, tuple[str | None, str | None, str | None]] = {}
+    default_key = None
+    for run in candidates:
+        env_cfg = _launchable_env_cfg(task_name, run)
+        if env_cfg is None:
+            continue
+        # Fingerprint after the launch scan, which resolves automatic selectors to concrete configs.
+        key = repr(to_dict(env_cfg))
+        if run == (None, None, None):
+            default_key = key
+        if key not in runs or len(task_run_overrides(run)) > len(task_run_overrides(runs[key])):
+            runs[key] = run
+    default = [runs.pop(default_key)] if default_key is not None else []
+    return default + list(runs.values())

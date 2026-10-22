@@ -3,6 +3,155 @@ Changelog
 
 .. towncrier release notes start
 
+28.0.0 (2026-10-17)
+~~~~~~~~~~~~~~~~~~~
+
+Added
+^^^^^
+
+* Added :func:`~isaaclab.app.validate_launch` to check whether a configuration's physics, renderer and
+  visualizer combination can launch, without starting a runtime. :func:`~isaaclab.app.launch_simulation`
+  runs it first.
+
+Changed
+^^^^^^^
+
+* Changed ``isaaclab list_envs --show_presets`` to list the preset combinations each task can launch headless,
+  one per line with the default marked, instead of the preset names it declares.
+
+Fixed
+^^^^^
+
+* **Breaking:** Fixed the ``"physx"`` convention to mean the OVPhysX order on every backend: breadth-first from
+  the root PhysX elects, visiting child links by joint type, then joint prim path. ``"physx"`` on Newton changes for
+  the joints of Digit and for the bodies of Go2, G1, Galbot and the Franka mimic asset, and now resolves when
+  ``articulation_root_prim_path`` is a pattern. It roots at the ``ArticulationRootAPI`` body before any world joint,
+  and raises instead of guessing when a floating articulation rooted on a container prim has a tied graph center, as
+  Humanoid-AMP does, nested bodies or loop-closing joints.
+* Fixed viewer defaults in :attr:`~isaaclab.sim.SimulationCfg.default_visualizer_cfg`
+  unexpectedly starting Isaac Sim or the RTX runtime when no visualizer was selected.
+* Fixed the Haply teleoperation example instantiating its robot before the simulation stage was created.
+* Raised the PyJWT minimum to 2.15.1 for the Isaac Sim extra and the virtualenv minimum to 21.7.13
+  for the RLInf extra to select upstream security fixes in source and wheel installations.
+* Fixed the ``newton-dominoes`` example failing to initialize before simulation startup.
+* Fixed the G1 rigid/MPM coupling example failing to load its policy on Isaac Lab 3.0.
+
+
+27.2.0 (2026-10-14)
+~~~~~~~~~~~~~~~~~~~
+
+Added
+^^^^^
+
+* Added the packaged ``mpm-g1-coupling`` example for comparing one-way and two-way G1--MPM interaction.
+
+Changed
+^^^^^^^
+
+* Updated Isaac Lab to use Isaac Sim 6.2, including the pip wheel, standalone importer,
+  container image, and China storage profile.
+* Raised the ``aiohttp`` and ``urllib3`` dependency floors to versions that address
+  GHSA-cq5v-8q36-5273 and GHSA-vxq7-64xx-v4gw.
+* Raised the ``GitPython`` security floor to 3.1.60 and refreshed the locked ``fsspec``
+  and ``hydra-core`` releases used by the default environment.
+
+Fixed
+^^^^^
+
+* Fixed multi-minute stalls on Windows in the first CUDA graph capture after the renderer's first frame,
+  seen with Newton physics under OVRTX and under Kit. :class:`~isaaclab.sim.SimulationContext` now reserves
+  CUDA graph memory when it is created, before the CUDA driver's address placement can be blocked.
+* Fixed lazy MJCF and URDF conversion returning an older USD after the importer wrote a changed asset to a numbered
+  folder. The cache now records the generated file and reuses only the most recent matching conversion. Old
+  hash-only cache records cause one conversion because they do not identify the generated file.
+* Fixed aggregate wheel uploads to PyPI by keeping the PyTorch dependencies index-resolvable while preserving
+  CUDA PyTorch selection for direct ``uvx`` use, generated projects, and standalone installations.
+* Fixed CLI runtime commands such as ``uv run isaaclab train`` failing to load linked Isaac Sim source builds by activating their runtime environment before importing tasks.
+
+
+27.1.0 (2026-10-13)
+~~~~~~~~~~~~~~~~~~~
+
+Added
+^^^^^
+
+* Exposed ``isaaclab.cli.load_external_tasks()`` for launchers to discover installed downstream task registrations.
+
+Fixed
+^^^^^
+
+* Fixed Ctrl+C being lost when Kit dispatched a Python event callback during a visualizer update.
+* Fixed manual joint-velocity termination to detect non-finite values.
+* Fixed manual demonstration success evaluation by keeping inert termination terms
+  registered for dependent rewards, while preserving curricula needed by reset events.
+* Fixed explicit rendering deadlocking while a visualizer had paused training.
+* Documented preservation of compliant-contact stiffness during material randomization on PhysX and OVPhysX.
+
+
+27.0.4 (2026-10-12)
+~~~~~~~~~~~~~~~~~~~
+
+Fixed
+^^^^^
+
+* Fixed LEAPP export of EMA joint position actions by preserving the previous target as feedback state.
+* Fixed stale Newton asset caches by using the raw HTTPS asset root by default while
+  preserving :func:`~isaaclab.utils.assets.retrieve_git_asset_path` for compatibility.
+
+
+27.0.3 (2026-10-10)
+~~~~~~~~~~~~~~~~~~~
+
+Added
+^^^^^
+
+* Added LEAPP input semantics for deformable nodal and root state.
+* Added Stubbed initial content to the project generator, with task-specific implementation placeholders for direct, manager-based, and AMP workflows.
+
+Changed
+^^^^^^^
+
+* Changed the default rough-terrain configuration to use mesh collision, preserving vertical stair faces.
+  Newton heightfield collision can be enabled by setting ``convert_to_heightfield=True`` for every sub-terrain.
+* Reduced task-space body-offset Jacobian overhead by using batched cross products instead of skew matrices.
+* Updated ``usd-exchange`` to 3.0.1 and ``usd-optimize`` to 1.3.1, which must move together. On Windows,
+  ``usd-exchange`` now ships versioned MaterialX DLLs that no longer share names with those of ``ovrtx``.
+
+Removed
+^^^^^^^
+
+* Removed Git LFS from the base, cuRobo, and kit-less container images, because scanners flag the Go modules
+  embedded in its upstream binary. ``git`` is still installed; install Git LFS in a derived image to
+  work with Git LFS repositories inside a container.
+* Removed the unused ``torchaudio`` dependency. Isaac Sim installations still provide it.
+
+Fixed
+^^^^^
+
+* Expanded deformable geometry through every imported ancestor source when world compositions selected different nested assets.
+* Preserved the deprecated sensor-frame spawning APIs for one compatibility cycle; new ray casters should set
+  ``RayCasterCfg.spawn`` to ``None`` and track an existing frame.
+* Fixed ``image_normals`` raising ``KeyError: 'data_type'`` when constructed through the observation manager.
+* Fixed the Pink IK action
+  (:class:`~isaaclab.envs.mdp.actions.pink_task_space_actions.PinkInverseKinematicsAction`) applying zero
+  joint-effort targets instead of the gravity compensation forces on fixed-base articulations when
+  ``enable_gravity_compensation`` is enabled.
+* Fixed terminal environment listings to show supported RL libraries.
+* Fixed aggregate wheel installations selecting CPU-only PyTorch on Windows by preserving the
+  locked CUDA wheel URLs in package metadata for each supported platform.
+* Fixed :class:`~isaaclab.envs.mdp.events.randomize_fixed_tendon_parameters` drifting tendon values across resets.
+  It now randomizes from the values read when the term is created and ignores values written afterwards by other code.
+* Fixed per-joint clipping for binary joint actions when one binary input controls multiple joints.
+* Preserved ``Box``, ``Discrete``, and ``MultiDiscrete`` dtypes and ``Discrete``/``MultiDiscrete`` start offsets when serializing Gymnasium spaces.
+* Allowed :class:`LinearInterpolation` to evaluate non-contiguous query tensors while preserving their original shape.
+* Fixed constant and default color handling in ``create_pointcloud_from_rgbd`` so tuple/list colors and the black fallback construct valid tensors on the point-cloud device, including inferred CUDA/Warp depth devices.
+* Fixed generated registration tests to expect the custom environment entry point for manager-based AMP tasks.
+* Fixed project generation to reject unsupported manager-based multi-agent workflows before writing task files.
+* Fixed debug visualization markers missing from headless video recordings.
+* Pinned PyTorch 2.11 and torchvision 0.26 with CUDA 13.0 on all platforms, matching Isaac Sim 6.1, so multi-GPU
+  training with an RTX renderer no longer fails NCCL initialization on Blackwell GPUs.
+
+
 27.0.2 (2026-10-06)
 ~~~~~~~~~~~~~~~~~~~
 
