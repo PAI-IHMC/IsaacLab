@@ -16,7 +16,10 @@
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
 import os
+import subprocess
 import sys
+
+import tomllib
 
 sys.path.insert(0, os.path.abspath("_extensions"))
 sys.path.insert(0, os.path.abspath("../source/isaaclab"))
@@ -25,12 +28,26 @@ sys.path.insert(0, os.path.abspath("../source/isaaclab_assets"))
 sys.path.insert(0, os.path.abspath("../source/isaaclab_assets/isaaclab_assets"))
 sys.path.insert(0, os.path.abspath("../source/isaaclab_tasks"))
 sys.path.insert(0, os.path.abspath("../source/isaaclab_tasks/isaaclab_tasks"))
+sys.path.insert(0, os.path.abspath("../source/isaaclab_tasks_experimental"))
+sys.path.insert(0, os.path.abspath("../source/isaaclab_tasks_experimental/isaaclab_tasks_experimental"))
+sys.path.insert(0, os.path.abspath("../source/isaaclab_physx"))
+sys.path.insert(0, os.path.abspath("../source/isaaclab_physx/isaaclab_physx"))
+sys.path.insert(0, os.path.abspath("../source/isaaclab_newton"))
+sys.path.insert(0, os.path.abspath("../source/isaaclab_newton/isaaclab_newton"))
+sys.path.insert(0, os.path.abspath("../source/isaaclab_experimental"))
+sys.path.insert(0, os.path.abspath("../source/isaaclab_experimental/isaaclab_experimental"))
 sys.path.insert(0, os.path.abspath("../source/isaaclab_rl"))
 sys.path.insert(0, os.path.abspath("../source/isaaclab_rl/isaaclab_rl"))
 sys.path.insert(0, os.path.abspath("../source/isaaclab_mimic"))
 sys.path.insert(0, os.path.abspath("../source/isaaclab_mimic/isaaclab_mimic"))
 sys.path.insert(0, os.path.abspath("../source/isaaclab_contrib"))
 sys.path.insert(0, os.path.abspath("../source/isaaclab_contrib/isaaclab_contrib"))
+sys.path.insert(0, os.path.abspath("../source/isaaclab_teleop"))
+sys.path.insert(0, os.path.abspath("../source/isaaclab_teleop/isaaclab_teleop"))
+sys.path.insert(0, os.path.abspath("../source/isaaclab_ov"))
+sys.path.insert(0, os.path.abspath("../source/isaaclab_ov/isaaclab_ov"))
+sys.path.insert(0, os.path.abspath("../source/isaaclab_visualizers"))
+sys.path.insert(0, os.path.abspath("../source/isaaclab_visualizers/isaaclab_visualizers"))
 
 # -- Project information -----------------------------------------------------
 
@@ -43,11 +60,51 @@ with open(os.path.join(os.path.dirname(__file__), "..", "VERSION")) as f:
     full_version = f.read().strip()
     version = ".".join(full_version.split(".")[:3])
 
-# Latest branch referenced by installation documentation.
-isaaclab_latest_branch = os.getenv("ISAACLAB_LATEST_BRANCH", "main")
+# Latest release branch referenced by installation documentation.
+isaaclab_latest_branch = os.getenv("ISAACLAB_LATEST_BRANCH", "develop")
+isaaclab_wheel_version = "3.0.0"
+isaaclab_wheel_source_tag = "v3.0.0"
+
+
+def _read_pinned_versions() -> dict:
+    """Read the ``[tool.isaaclab.versions]`` table from the root pyproject.
+
+    This table is the single source of truth for externally-pinned versions
+    (Isaac Sim, the torch stack, the OV renderer/physics wheels).
+    """
+    pyproject = os.path.join(os.path.dirname(__file__), "..", "pyproject.toml")
+    with open(pyproject, "rb") as f:
+        return tomllib.load(f)["tool"]["isaaclab"]["versions"]
+
+
+# Pinned external versions referenced by the installation docs. Shared with the
+# ``isaaclab_docs`` extension via config values of the same name.
+_pinned_versions = _read_pinned_versions()
+isaacsim_version = _pinned_versions["isaacsim"]
+torch_version = _pinned_versions["torch"]
+torchvision_version = _pinned_versions["torchvision"]
+ovrtx_version = _pinned_versions["ovrtx"]
+ovrtx_spec = f"=={ovrtx_version}" if ovrtx_version[0].isdigit() else ovrtx_version
+ovphysx_version = _pinned_versions["ovphysx"]
+
+# Short version strings used in external documentation URLs and badges.
+torch_docs_version = ".".join(torch_version.split(".")[:2])  # e.g. "2.11"
+isaacsim_docs_version = ".".join(isaacsim_version.split(".")[:3])  # e.g. "6.2.0"
+# The rendered OVRTX docs are unversioned, so link its docs sources at the pinned release tag, e.g. "v0.5.1".
+ovrtx_docs_ref = f"v{'.'.join(ovrtx_version.split('.')[:3])}" if ovrtx_version[0].isdigit() else "main"
+
+# Copy buttons on highlighted code blocks (including nested directive output).
+copybutton_selector = "div.highlight pre"
 
 rst_prolog = f"""
 .. |isaaclab_latest_branch| replace:: {isaaclab_latest_branch}
+.. |isaaclab_wheel_version| replace:: {isaaclab_wheel_version}
+.. |isaacsim_version| replace:: {isaacsim_version}
+.. |torch_version| replace:: {torch_version}
+.. |torchvision_version| replace:: {torchvision_version}
+.. |ovrtx_spec| replace:: {ovrtx_spec}
+.. |ovrtx_docs_ref| replace:: {ovrtx_docs_ref}
+.. |ovphysx_version| replace:: {ovphysx_version}
 """
 
 # -- General configuration ---------------------------------------------------
@@ -62,15 +119,17 @@ extensions = [
     "sphinxemoji.sphinxemoji",
     "sphinx.ext.autodoc",
     "sphinx.ext.autosummary",
+    "sphinx.ext.extlinks",
     "sphinx.ext.githubpages",
     "sphinx.ext.intersphinx",
     "sphinx.ext.mathjax",
     "sphinx.ext.todo",
-    "sphinx.ext.viewcode",
+    "sphinx.ext.linkcode",
     "sphinxcontrib.bibtex",
     "sphinxcontrib.icon",
     "sphinx_copybutton",
     "sphinx_design",
+    "sphinx_paramlinks",
     "sphinx_tabs.tabs",  # backwards compatibility for building docs on v1.0.0
     "sphinx_multiversion",
     "isaaclab_docs",
@@ -135,12 +194,22 @@ intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
     "numpy": ("https://numpy.org/doc/stable/", None),
     "trimesh": ("https://trimesh.org/", None),
-    "torch": ("https://docs.pytorch.org/docs/stable/", None),
-    "isaacsim": ("https://docs.isaacsim.omniverse.nvidia.com/5.1.0/py/", None),
+    # pinned to the release version because /docs/stable/objects.inv currently 404s
+    "torch": (f"https://docs.pytorch.org/docs/{torch_docs_version}/", None),
+    # Versioned documentation can lag a newly published Isaac Sim package release.
+    "isaacsim": (
+        "https://docs.isaacsim.omniverse.nvidia.com/latest/py/",
+        "https://docs.isaacsim.omniverse.nvidia.com/latest/py/objects.inv",
+    ),
     "gymnasium": ("https://gymnasium.farama.org/", None),
     # NOTE: pinned to /stable/ because /objects.inv at the root currently 404s
     "warp": ("https://nvidia.github.io/warp/stable/", None),
     "omniverse": ("https://docs.omniverse.nvidia.com/dev-guide/latest", None),
+}
+
+# Usage: :ovrtx-docs:`Minimal mode <sensors/cameras/render_modes/minimal.rst>`
+extlinks = {
+    "ovrtx-docs": (f"https://github.com/NVIDIA-Omniverse/ovrtx/blob/{ovrtx_docs_ref}/docs/%s", None),
 }
 
 # Add any paths that contain templates here, relative to this directory.
@@ -149,13 +218,22 @@ templates_path = []
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
-exclude_patterns = ["_build", "_redirect", "_templates", "Thumbs.db", ".DS_Store", "README.md", "licenses/*", "plans"]
+exclude_patterns = [
+    "_build",
+    "_redirect",
+    "_templates",
+    "Thumbs.db",
+    ".DS_Store",
+    "README.md",
+    "licenses/*",
+    "plans",
+    # Include-only fragments (pulled in via ``.. include::``; not standalone pages).
+]
 
 # Mock out modules that are not available on RTD
 autodoc_mock_imports = [
     "torch",
     "torchvision",
-    "numpy",
     "matplotlib",
     "scipy",
     "carb",
@@ -169,15 +247,16 @@ autodoc_mock_imports = [
     "omni.client",
     "omni.physx",
     "omni.physics",
+    "ovphysx",
     "usdrt",
     "pxr.PhysxSchema",
     "pxr.PhysicsSchemaTools",
     "omni.replicator",
-    "isaacsim",
-    "isaacsim.core.api",
     "isaacsim.core.cloner",
     "isaacsim.core.version",
-    "isaacsim.core.utils",
+    "isaacsim.core.experimental.prims",
+    "isaacsim.core.experimental.utils",
+    "isaacsim.core.rendering_manager",
     "isaacsim.robot_motion.motion_generation",
     "isaacsim.gui.components",
     "isaacsim.asset.importer.urdf",
@@ -195,19 +274,31 @@ autodoc_mock_imports = [
     "h5py",
     "hid",
     "prettytable",
+    "psutil",
     "tqdm",
     "tensordict",
+    "torchrl",
     "trimesh",
     "toml",
     "pink",
     "pinocchio",
-    "nvidia.srl",
+    "qpsolvers",
     "flatdict",
+    "leapp",
+    "ovrtx",
+    "filelock",
     "IPython",
     "cv2",
     "imageio",
     "ipywidgets",
     "mpl_toolkits",
+    "isaacteleop",
+    "scipy",
+    "hydra",
+    "hydra.core",
+    "hydra.core.config_store",
+    "omegaconf",
+    "newton",
 ]
 
 # List of zero or more Sphinx-specific warning categories to be squelched (i.e.,
@@ -251,11 +342,22 @@ html_last_updated_fmt = ""  # to reveal the build date in the pages meta
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
-html_static_path = ["source/_static/css"]
-html_css_files = ["custom.css"]
+html_static_path = ["source/_static"]
+html_css_files = [
+    "css/custom.css",
+    "css/environment-browser.css",
+    "css/demo-browser.css",
+    "css/guide-browser.css",
+]
+html_js_files = [
+    "css/environment-browser.js",
+    "css/demo-browser.js",
+    "css/guide-browser.js",
+]
 
 html_theme_options = {
     "path_to_docs": "docs/",
+    "navbar_persistent": [],
     "collapse_navigation": True,
     "repository_url": "https://github.com/isaac-sim/IsaacLab",
     "use_repository_button": True,
@@ -278,7 +380,7 @@ html_theme_options = {
         {
             "name": "Isaac Sim",
             "url": "https://developer.nvidia.com/isaac-sim",
-            "icon": "https://img.shields.io/badge/IsaacSim-5.1.0-silver.svg",
+            "icon": f"https://img.shields.io/badge/IsaacSim-{isaacsim_docs_version}-silver.svg",
             "type": "url",
         },
         {
@@ -308,6 +410,126 @@ html_sidebars = {
 }
 
 
+# Keep published links working after guide consolidation.
+isaaclab_doc_redirects = {
+    "source/concepts/schema_fragments": "source/concepts/schema_cfgs",
+    "source/migration/migrating_to_isaaclab_3-0": "source/isaaclab/migrating",
+    "source/setup/ecosystem": "source/isaaclab/ecosystem",
+    "source/setup/environments": "source/isaaclab/environments",
+    "source/setup/quickstart": "source/isaaclab/quickstart",
+    "source/setup/tutorial": "source/isaaclab/tutorial",
+    "source/setup/demos": "source/isaaclab/demos",
+    "source/setup/interactive_demos": "source/isaaclab/interactive_demos",
+    "source/setup/installation/index": "source/isaaclab/installation",
+    "source/concepts/backend_architecture": "source/concepts/backends_and_presets",
+    "source/concepts/native-physics-api/newton": "source/concepts/physics-backends/newton",
+    "source/concepts/native-physics-api/ovphysx": "source/concepts/physics-backends/ovphysx",
+    "source/concepts/native-physics-api/physx": "source/concepts/physics-backends/physx",
+    "source/concepts/joint_and_body_ordering": "source/how-to/transfer_policies_between_physx_and_newton",
+    "source/concepts/ovphysx": "source/concepts/physics-backends/ovphysx",
+    "source/concepts/warp_environment_migration": "source/concepts/warp_environments",
+    "source/concepts/solver-tuning/index": "source/how-to/index",
+    "source/concepts/solver-tuning/tune_kamino": "source/how-to/solver_tuning_kamino",
+    "source/concepts/solver-tuning/tune_mjwarp": "source/how-to/solver_tuning_mjwarp",
+    "source/concepts/solver-tuning/tune_mpm": "source/how-to/solver_tuning_mpm",
+    "source/concepts/solver-tuning/tune_physx": "source/how-to/solver_tuning_physx",
+    "source/concepts/solver-tuning/tune_vbd": "source/how-to/solver_tuning_vbd",
+    "source/features/docker_cloud": "source/isaaclab/installation",
+    "source/workflows/index": "source/isaaclab/installation",
+    "source/workflows/docker/index": "source/isaaclab/installation",
+    "source/workflows/docker/images": "source/isaaclab/installation",
+    "source/workflows/docker/cluster": "source/features/hpc_clusters",
+    "source/workflows/docker/cloud": "source/features/cloud_deployment",
+    "source/features/reproducibility": "source/how-to/reproducibility",
+    "source/concepts/native-physics-api/index": "source/concepts/physics_backends",
+    "source/concepts/native-physics-api/scene_data_providers": "source/concepts/scene_data_providers",
+    "source/developer-tools/scene_data_providers": "source/concepts/scene_data_providers",
+    "source/features/draw_markers": "source/how-to/create_visualization_markers",
+    "source/features/record_video": "source/how-to/record_video",
+    "source/features/visualizer_tiled_camera": "source/how-to/visualizer_streaming_camera_view",
+    "source/how-to/robots": "source/how-to/write_articulation_cfg",
+    "source/tutorials/00_sim/create_empty": "source/how-to/create_empty",
+    "source/tutorials/00_sim/launch_app": "source/how-to/launch_app",
+    "source/tutorials/00_sim/spawn_prims": "source/how-to/spawn_prims",
+    "source/tutorials/01_assets/add_new_robot": "source/how-to/write_articulation_cfg",
+    "source/tutorials/01_assets/run_articulation": "source/how-to/run_articulation",
+    "source/tutorials/01_assets/run_deformable_object": "source/how-to/run_deformable_object",
+    "source/tutorials/01_assets/run_rigid_object": "source/how-to/run_rigid_object",
+    "source/tutorials/01_assets/run_surface_gripper": "source/how-to/run_surface_gripper",
+    "source/tutorials/02_scene/create_scene": "source/how-to/create_scene",
+    "source/tutorials/03_envs/configuring_rl_training": "source/how-to/configuring_rl_training",
+    "source/tutorials/03_envs/create_direct_rl_env": "source/how-to/create_direct_rl_env",
+    "source/tutorials/03_envs/create_manager_base_env": "source/how-to/create_manager_base_env",
+    "source/tutorials/03_envs/create_manager_rl_env": "source/how-to/create_manager_rl_env",
+    "source/tutorials/03_envs/modify_direct_rl_env": "source/how-to/modify_direct_rl_env",
+    "source/tutorials/03_envs/policy_inference_in_usd": "source/how-to/policy_inference_in_usd",
+    "source/tutorials/03_envs/register_rl_env_gym": "source/how-to/register_rl_env_gym",
+    "source/tutorials/03_envs/run_rl_training": "source/how-to/run_rl_training",
+    "source/tutorials/04_sensors/add_sensors_on_robot": "source/how-to/add_sensors_on_robot",
+    "source/tutorials/05_controllers/run_diff_ik": "source/how-to/run_diff_ik",
+    "source/tutorials/05_controllers/run_osc": "source/how-to/run_osc",
+    "source/tutorials/index": "source/how-to/index",
+}
+
+_streaming_how_to = "source/how-to/visualizer_streaming_camera_view"
+
+# Sections of moved or consolidated pages and where they live now.
+isaaclab_doc_redirect_fragments = {
+    "source/concepts/backend_architecture": {
+        "overview": "source/concepts/backends_and_presets#backend-architecture",
+    },
+    "source/concepts/native-physics-api/newton": {
+        "": "source/concepts/physics-backends/newton#newton-native-access",
+        "newton-native-data-and-selection-api": "source/concepts/physics-backends/newton#newton-native-access",
+    },
+    "source/concepts/native-physics-api/ovphysx": {
+        "": "source/concepts/physics-backends/ovphysx#ovphysx-native-access",
+        "ovphysx-tensor-bindings": "source/concepts/physics-backends/ovphysx#ovphysx-native-access",
+    },
+    "source/concepts/native-physics-api/physx": {
+        "": "source/concepts/physics-backends/physx#physx-native-access",
+        "physx-tensor-api": "source/concepts/physics-backends/physx#physx-native-access",
+    },
+    "source/concepts/joint_and_body_ordering": {
+        "": "source/how-to/transfer_policies_between_physx_and_newton#joint-and-body-ordering",
+    },
+    "source/concepts/warp_environment_migration": {
+        "": "source/concepts/warp_environments#warp-env-migration",
+        "warp-environment-migration-guide": "source/concepts/warp_environments#warp-env-migration",
+    },
+    "source/workflows/index": {
+        "": "source/isaaclab/installation#installation-method-container",
+    },
+    "source/workflows/docker/index": {
+        "": "source/isaaclab/installation#installation-method-container",
+        "running-isaac-lab-in-docker": "source/isaaclab/installation#installation-method-container",
+    },
+    "source/workflows/docker/images": {
+        "": "source/isaaclab/installation#docker-images",
+    },
+    "source/features/docker_cloud": {
+        "": "source/isaaclab/installation#installation-method-container",
+        "clusters": "source/features/hpc_clusters#deployment-cluster",
+        "deployment-cluster": "source/features/hpc_clusters#deployment-cluster",
+        "cloud-workstations": "source/features/cloud_deployment#docker-cloud-cloud",
+        "docker-cloud-cloud": "source/features/cloud_deployment#docker-cloud-cloud",
+    },
+    "source/features/record_video": {
+        "overview": "source/concepts/visualization#video-recording",
+        "record-video-cli": "source/concepts/visualization#record-video-cli",
+        "usage": "source/how-to/record_video#sources",
+        "source-types": "source/how-to/record_video#sources",
+        "limitations-and-compatibility": "source/how-to/record_video#limitations",
+    },
+    "source/features/visualizer_tiled_camera": {
+        "overview": "source/concepts/visualization#visualization-streaming-camera-view",
+        "usage": "source/concepts/visualization#visualization-streaming-camera-view",
+        "configuration-notes": f"{_streaming_how_to}#configuration",
+        "migration-from-generated-streaming-cameras": f"{_streaming_how_to}#configuration",
+        "declared-display-sources": f"{_streaming_how_to}#configuration",
+    },
+}
+
 # -- Advanced configuration -------------------------------------------------
 
 
@@ -319,5 +541,13 @@ def skip_member(app, what, name, obj, skip, options):
     return None
 
 
+def update_environment_browser(app):
+    """Regenerate the environment browser's task rows from the task registry, so they cannot go stale."""
+    tool = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools", "update_environments_rst.py")
+    subprocess.run([sys.executable, tool], check=True)
+
+
 def setup(app):
     app.connect("autodoc-skip-member", skip_member)
+    # Temporarily disabled while editing docs to avoid parsing every task configuration.
+    # app.connect("builder-inited", update_environment_browser)
