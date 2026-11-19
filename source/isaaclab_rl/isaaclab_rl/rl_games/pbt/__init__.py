@@ -3,6 +3,5 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-from isaaclab.utils.module import lazy_export
-
-lazy_export()
+from .pbt import MultiObserver, PbtAlgoObserver
+from .pbt_cfg import PbtCfg

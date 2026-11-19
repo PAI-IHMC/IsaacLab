@@ -1,5 +1,3 @@
-:orphan:
-
 .. _how-to-save-images-and-3d-reprojection:
 
 
@@ -8,38 +6,45 @@ Saving rendered images and 3D re-projection
 
 .. currentmodule:: isaaclab
 
-Save camera images and reproject depth into 3D points with
-``scripts/tutorials/04_sensors/run_usd_camera.py``.
+This guide accompanied with the ``run_usd_camera.py`` script in the ``IsaacLab/scripts/tutorials/04_sensors``
+directory.
 
 .. dropdown:: Code for run_usd_camera.py
    :icon: code
 
    .. literalinclude:: ../../../scripts/tutorials/04_sensors/run_usd_camera.py
       :language: python
-      :emphasize-lines: 173-175, 224-229, 231-250
+      :emphasize-lines: 171-179, 229-247, 251-264
       :linenos:
 
 
-Saving the images to file
--------------------------
+Saving using Replicator Basic Writer
+------------------------------------
 
-To save camera outputs, we use the :func:`~isaaclab.sensors.camera.utils.save_images_to_file` utility.
-It writes a batch of images as a PNG file and does not depend on the renderer backend. The script creates
-the output folder once, before the simulation loop:
-
-.. literalinclude:: ../../../scripts/tutorials/04_sensors/run_usd_camera.py
-   :language: python
-   :start-at: # Create the output directory
-   :end-at: os.makedirs(output_dir, exist_ok=True)
-
-While stepping the simulator, the outputs of the camera at ``camera_index`` are saved once per data type and
-frame: 8-bit color outputs (the RGB image and the colorized segmentations) as PNG files, and floating-point
-outputs, such as depth and normals, as NumPy ``.npy`` files.
+To save camera outputs, we use the basic write class from Omniverse Replicator. This class allows us to save the
+images in a numpy format. For more information on the basic writer, please check the
+`documentation <https://docs.omniverse.nvidia.com/extensions/latest/ext_replicator/writer_examples.html>`_.
 
 .. literalinclude:: ../../../scripts/tutorials/04_sensors/run_usd_camera.py
    :language: python
-   :start-at: # Save the camera outputs at camera_index
-   :end-at: np.save(
+   :start-at: rep_writer = rep.BasicWriter(
+   :end-before: # Camera positions, targets, orientations
+
+While stepping the simulator, the images can be saved to the defined folder. Since the BasicWriter only supports
+saving data using NumPy format, we first need to convert the PyTorch sensors to NumPy arrays before packing
+them in a dictionary.
+
+.. literalinclude:: ../../../scripts/tutorials/04_sensors/run_usd_camera.py
+   :language: python
+   :start-at: # Save images from camera at camera_index
+   :end-at: single_cam_info = camera.data.info[camera_index]
+
+After this step, we can save the images using the BasicWriter.
+
+.. literalinclude:: ../../../scripts/tutorials/04_sensors/run_usd_camera.py
+   :language: python
+   :start-at: # Pack data back into replicator format to save them using its writer
+   :end-at: rep_writer.write(rep_output)
 
 
 Projection into 3D Space
@@ -67,7 +72,7 @@ to create a point cloud from the depth image and transform it to the world frame
    :start-at: # Derive pointcloud from camera at camera_index
    :end-before: # In the first few steps, things are still being instanced and Camera.data
 
-The resulting point cloud can be visualized using :class:`~isaaclab.markers.VisualizationMarkers`.
+The resulting point cloud can be visualized using the :mod:`isaacsim.util.debug_draw` extension from Isaac Sim.
 This makes it easy to visualize the point cloud in the 3D space.
 
 .. literalinclude:: ../../../scripts/tutorials/04_sensors/run_usd_camera.py
@@ -84,14 +89,14 @@ To run the accompanying script, execute the following command:
 .. code-block:: bash
 
    # Usage with saving and drawing
-   python scripts/tutorials/04_sensors/run_usd_camera.py --save --draw
+   ./isaaclab.sh -p scripts/tutorials/04_sensors/run_usd_camera.py --save --draw --enable_cameras
 
-   # Usage with saving only (no visualizer)
-   python scripts/tutorials/04_sensors/run_usd_camera.py --save
+   # Usage with saving only in headless mode
+   ./isaaclab.sh -p scripts/tutorials/04_sensors/run_usd_camera.py --save --headless --enable_cameras
 
 
 The simulation should start, and you can observe different objects falling down. An output folder will be created
-in the ``IsaacLab/scripts/tutorials/04_sensors`` directory, where the images will be saved as PNG files. Additionally,
+in the ``IsaacLab/scripts/tutorials/04_sensors`` directory, where the images will be saved. Additionally,
 you should see the point cloud in the 3D space drawn on the viewport.
 
 To stop the simulation, close the window, or use ``Ctrl+C`` in the terminal.

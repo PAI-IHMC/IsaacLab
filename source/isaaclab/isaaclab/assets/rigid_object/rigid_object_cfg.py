@@ -3,13 +3,10 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-from typing import TYPE_CHECKING
+from isaaclab.utils import configclass
 
-from ...utils import configclass
 from ..asset_base_cfg import AssetBaseCfg
-
-if TYPE_CHECKING:
-    from .rigid_object import RigidObject
+from .rigid_object import RigidObject
 
 
 @configclass
@@ -29,7 +26,7 @@ class RigidObjectCfg(AssetBaseCfg):
     # Initialize configurations.
     ##
 
-    class_type: type["RigidObject"] | str = "{DIR}.rigid_object:RigidObject"
+    class_type: type = RigidObject
 
     init_state: InitialStateCfg = InitialStateCfg()
     """Initial state of the rigid object. Defaults to identity pose with zero velocity."""

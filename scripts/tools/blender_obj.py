@@ -67,9 +67,8 @@ def convert_to_obj(in_file: str, out_file: str, save_usd: bool = False):
     if not out_file.endswith(".obj"):
         out_file += ".obj"
     # create directory if it doesn't exist for destination file
-    out_dir = os.path.dirname(out_file)
-    if out_dir and not os.path.exists(out_dir):
-        os.makedirs(out_dir, exist_ok=True)
+    if not os.path.exists(os.path.dirname(out_file)):
+        os.makedirs(os.path.dirname(out_file), exist_ok=True)
     # reset scene to empty
     bpy.ops.wm.read_factory_settings(use_empty=True)
     # load object into scene
@@ -87,8 +86,8 @@ def convert_to_obj(in_file: str, out_file: str, save_usd: bool = False):
     )
     # save it as usd as well
     if save_usd:
-        usd_file = os.path.splitext(out_file)[0] + ".usd"
-        bpy.ops.wm.usd_export(filepath=usd_file, check_existing=False)
+        out_file = out_file.replace("obj", "usd")
+        bpy.ops.wm.usd_export(filepath=out_file, check_existing=False)
 
 
 if __name__ == "__main__":

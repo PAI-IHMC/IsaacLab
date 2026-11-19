@@ -1,24 +1,42 @@
-:orphan:
-
 Mastering Omniverse for Robotics
 ================================
 
-These resources cover USD scene authoring and PhysX setup in Omniverse tools.
-They are useful when preparing assets for Isaac Lab or working in Isaac Sim. For
-Isaac Lab's physics configuration interface, see :doc:`/source/concepts/schema_cfgs`.
+NVIDIA Omniverse offers a large suite of tools for 3D content workflows.
+There are three main components (relevant to robotics) in Omniverse:
 
-The topics include:
+-  **USD Composer**: This is based on a novel file format (Universal Scene
+   Description) from the animation (originally Pixar) community that is
+   used in Omniverse
+-  **PhysX SDK**: This is the main physics engine behind Omniverse that
+   leverages GPU-based parallelization for massive scenes
+-  **RTX-enabled Renderer**: This uses ray-tracing kernels in NVIDIA RTX
+   GPUs for real-time physically-based rendering
 
-- Navigating USD Composer and editing scenes.
-- USD prims, schemas, references, payloads, and instancing.
-- Applying PhysX schemas to prims.
-- Creating prims and changing their attributes through Python.
+Of these, the first two require a deeper understanding to start working
+with Omniverse and its constituent applications (Isaac Sim and Isaac Lab).
+
+The main things to learn:
+
+-  How to use the Composer GUI efficiently?
+-  What are USD prims and schemas?
+-  How do you compose a USD scene?
+-  What is the difference between references and payloads in USD?
+-  What is meant by scene-graph instancing?
+-  How to apply PhysX schemas on prims? What all schemas are possible?
+-  How to write basic operations in USD for creating prims and modifying
+   their attributes?
+
 
 Part 1: Using USD Composer
 --------------------------
 
-Start with the introductions, then choose the resources for the asset or scene
-you are preparing.
+While several `video
+tutorials <https://www.youtube.com/@NVIDIA-Studio>`__ and
+`documentation <https://docs.omniverse.nvidia.com/>`__ exist
+out there on NVIDIA Omniverse, going through all of them would take an
+extensive amount of time and effort. Thus, we have curated these
+resources to guide you through using Omniverse, specifically for
+robotics.
 
 Introduction to Omniverse and USD
 

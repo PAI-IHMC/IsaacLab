@@ -3,9 +3,15 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-from isaaclab.test.utils import launch_test_simulation
+"""Launch Isaac Sim Simulator first."""
 
-launch_test_simulation()
+from isaaclab.app import AppLauncher
+
+# launch omniverse app
+simulation_app = AppLauncher(headless=True).app
+
+"""Rest everything follows."""
+
 
 import pytest
 
@@ -16,8 +22,6 @@ from isaaclab.sim import SimulationCfg, SimulationContext
 from isaaclab.sim.spawners.sensors.sensors import CUSTOM_FISHEYE_CAMERA_ATTRIBUTES, CUSTOM_PINHOLE_CAMERA_ATTRIBUTES
 from isaaclab.utils.string import to_camel_case
 
-pytestmark = [pytest.mark.integration, pytest.mark.isaacsim_ci]
-
 
 @pytest.fixture
 def sim():
@@ -25,8 +29,11 @@ def sim():
     sim_utils.create_new_stage()
     dt = 0.1
     sim = SimulationContext(SimulationCfg(dt=dt))
+    sim_utils.update_stage()
     yield sim
     sim.stop()
+    sim.clear()
+    sim.clear_all_callbacks()
     sim.clear_instance()
 
 
@@ -35,8 +42,8 @@ Basic spawning.
 """
 
 
-def test_spawn_cameras(sim):
-    """Test spawning a pinhole and a fisheye camera."""
+def test_spawn_pinhole_camera(sim):
+    """Test spawning a pinhole camera."""
     cfg = sim_utils.PinholeCameraCfg(
         focal_length=5.0, f_stop=10.0, clipping_range=(0.1, 1000.0), horizontal_aperture=10.0
     )
@@ -48,7 +55,9 @@ def test_spawn_cameras(sim):
     # Check properties
     _validate_properties_on_prim(prim, cfg, CUSTOM_PINHOLE_CAMERA_ATTRIBUTES)
 
-    # spawn a fisheye camera on the same stage
+
+def test_spawn_fisheye_camera(sim):
+    """Test spawning a fisheye camera."""
     cfg = sim_utils.FisheyeCameraCfg(
         projection_type="fisheyePolynomial",
         focal_length=5.0,
@@ -65,16 +74,6 @@ def test_spawn_cameras(sim):
     assert prim.GetPrimTypeInfo().GetTypeName() == "Camera"
     # Check properties
     _validate_properties_on_prim(prim, cfg, CUSTOM_FISHEYE_CAMERA_ATTRIBUTES)
-
-
-def test_spawn_sensor_frame_remains_available_during_deprecation(sim):
-    cfg = sim_utils.SensorFrameCfg()
-
-    with pytest.warns(DeprecationWarning, match="spawn_sensor_frame is deprecated"):
-        prim = cfg.func("/World/sensor_frame", cfg)
-
-    assert prim.IsValid()
-    assert prim.GetTypeName() == "Xform"
 
 
 """

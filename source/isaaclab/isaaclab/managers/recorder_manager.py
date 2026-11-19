@@ -12,16 +12,16 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 import torch
-import warp as wp
 from prettytable import PrettyTable
 
-from ..utils import configclass, instantiate
-from ..utils.datasets import EpisodeData, HDF5DatasetFileHandler
+from isaaclab.utils import configclass
+from isaaclab.utils.datasets import EpisodeData, HDF5DatasetFileHandler
+
 from .manager_base import ManagerBase, ManagerTermBase
 from .manager_term_cfg import RecorderTermCfg
 
 if TYPE_CHECKING:
-    from ..envs import ManagerBasedEnv
+    from isaaclab.envs import ManagerBasedEnv
 
 
 class DatasetExportMode(enum.IntEnum):
@@ -53,9 +53,6 @@ class RecorderManagerBaseCfg:
 
     export_in_close: bool = False
     """Whether to export episodes in the close call."""
-
-    dataset_compression: bool = True
-    """Enable dataset compression."""
 
 
 class RecorderTerm(ManagerTermBase):
@@ -161,8 +158,8 @@ class RecorderManager(ManagerBase):
             cfg: The configuration object or dictionary (``dict[str, RecorderTermCfg]``).
             env: The environment instance.
         """
-        self._term_names: list[str] = []
-        self._terms: dict[str, RecorderTerm] = {}
+        self._term_names: list[str] = list()
+        self._terms: dict[str, RecorderTerm] = dict()
 
         # Do nothing if cfg is None or an empty dict
         if not cfg:
@@ -267,7 +264,7 @@ class RecorderManager(ManagerBase):
     Operations.
     """
 
-    def reset(self, env_ids: Sequence[int] | slice | None = None) -> dict[str, torch.Tensor]:
+    def reset(self, env_ids: Sequence[int] | None = None) -> dict[str, torch.Tensor]:
         """Resets the recorder data.
 
         Args:
@@ -280,11 +277,10 @@ class RecorderManager(ManagerBase):
         # Do nothing if no active recorder terms are provided
         if len(self.active_terms) == 0:
             return {}
+
         # resolve environment ids
         if env_ids is None:
-            env_ids = slice(None)
-        if isinstance(env_ids, slice):
-            env_ids = list(range(self._env.num_envs)[env_ids])
+            env_ids = list(range(self._env.num_envs))
         if isinstance(env_ids, torch.Tensor):
             env_ids = env_ids.tolist()
 
@@ -308,7 +304,7 @@ class RecorderManager(ManagerBase):
         """
         return self._episodes.get(env_id, EpisodeData())
 
-    def add_to_episodes(self, key: str, value: torch.Tensor | dict, env_ids: Sequence[int] | slice | None = None):
+    def add_to_episodes(self, key: str, value: torch.Tensor | dict, env_ids: Sequence[int] | None = None):
         """Adds the given key-value pair to the episodes for the given environment ids.
 
         Args:
@@ -327,29 +323,22 @@ class RecorderManager(ManagerBase):
         if key is None:
             return
         if env_ids is None:
-            env_ids = slice(None)
-        if isinstance(env_ids, slice):
-            env_ids = list(range(self._env.num_envs)[env_ids])
+            env_ids = list(range(self._env.num_envs))
         if isinstance(env_ids, torch.Tensor):
             env_ids = env_ids.tolist()
 
         if isinstance(value, dict):
             for sub_key, sub_value in value.items():
-                if isinstance(sub_value, wp.array):
-                    sub_value = wp.to_torch(sub_value)
                 self.add_to_episodes(f"{key}/{sub_key}", sub_value, env_ids)
             return
 
-        if isinstance(value, wp.array):
-            value = wp.to_torch(value)
-        value = value.clone()  # Clone once for all envs
         for value_index, env_id in enumerate(env_ids):
             if env_id not in self._episodes:
                 self._episodes[env_id] = EpisodeData()
                 self._episodes[env_id].env_id = env_id
-            self._episodes[env_id].add(key, value[value_index], clone=False)
+            self._episodes[env_id].add(key, value[value_index])
 
-    def set_success_to_episodes(self, env_ids: Sequence[int] | slice | None, success_values: torch.Tensor):
+    def set_success_to_episodes(self, env_ids: Sequence[int] | None, success_values: torch.Tensor):
         """Sets the task success values to the episodes for the given environment ids.
 
         Args:
@@ -362,9 +351,7 @@ class RecorderManager(ManagerBase):
 
         # resolve environment ids
         if env_ids is None:
-            env_ids = slice(None)
-        if isinstance(env_ids, slice):
-            env_ids = list(range(self._env.num_envs)[env_ids])
+            env_ids = list(range(self._env.num_envs))
         if isinstance(env_ids, torch.Tensor):
             env_ids = env_ids.tolist()
 
@@ -401,7 +388,7 @@ class RecorderManager(ManagerBase):
             key, value = term.record_post_physics_decimation_step()
             self.add_to_episodes(key, value)
 
-    def record_pre_reset(self, env_ids: Sequence[int] | slice | None, force_export_or_skip=None) -> None:
+    def record_pre_reset(self, env_ids: Sequence[int] | None, force_export_or_skip=None) -> None:
         """Trigger recorder terms for pre-reset functions.
 
         Args:
@@ -412,9 +399,7 @@ class RecorderManager(ManagerBase):
             return
 
         if env_ids is None:
-            env_ids = slice(None)
-        if isinstance(env_ids, slice):
-            env_ids = list(range(self._env.num_envs)[env_ids])
+            env_ids = list(range(self._env.num_envs))
         if isinstance(env_ids, torch.Tensor):
             env_ids = env_ids.tolist()
 
@@ -433,7 +418,7 @@ class RecorderManager(ManagerBase):
         if force_export_or_skip or (force_export_or_skip is None and self.cfg.export_in_record_pre_reset):
             self.export_episodes(env_ids)
 
-    def record_post_reset(self, env_ids: Sequence[int] | slice | None) -> None:
+    def record_post_reset(self, env_ids: Sequence[int] | None) -> None:
         """Trigger recorder terms for post-reset functions.
 
         Args:
@@ -442,9 +427,6 @@ class RecorderManager(ManagerBase):
         # Do nothing if no active recorder terms are provided
         if len(self.active_terms) == 0:
             return
-
-        if isinstance(env_ids, slice):
-            env_ids = list(range(self._env.num_envs)[env_ids])
 
         for term in self._terms.values():
             key, value = term.record_post_reset(env_ids)
@@ -467,9 +449,7 @@ class RecorderManager(ManagerBase):
         ep_meta = self._env.cfg.get_ep_meta()
         return ep_meta
 
-    def export_episodes(
-        self, env_ids: Sequence[int] | slice | None = None, demo_ids: Sequence[int] | None = None
-    ) -> None:
+    def export_episodes(self, env_ids: Sequence[int] | None = None, demo_ids: Sequence[int] | None = None) -> None:
         """Concludes and exports the episodes for the given environment ids.
 
         Args:
@@ -485,9 +465,7 @@ class RecorderManager(ManagerBase):
             return
 
         if env_ids is None:
-            env_ids = slice(None)
-        if isinstance(env_ids, slice):
-            env_ids = list(range(self._env.num_envs)[env_ids])
+            env_ids = list(range(self._env.num_envs))
         if isinstance(env_ids, torch.Tensor):
             env_ids = env_ids.tolist()
 
@@ -530,9 +508,7 @@ class RecorderManager(ManagerBase):
                 if target_dataset_file_handler is not None:
                     # Use corresponding demo_id if provided, otherwise None
                     current_demo_id = demo_ids[i] if demo_ids is not None else None
-                    target_dataset_file_handler.write_episode(
-                        self._episodes[env_id], current_demo_id, self.cfg.dataset_compression
-                    )
+                    target_dataset_file_handler.write_episode(self._episodes[env_id], current_demo_id)
                     need_to_flush = True
                 # Update episode count
                 if episode_succeeded:
@@ -586,19 +562,19 @@ class RecorderManager(ManagerBase):
                 "dataset_export_mode",
                 "export_in_record_pre_reset",
                 "export_in_close",
-                "dataset_compression",
             ]:
                 continue
             # check if term config is None
             if term_cfg is None:
                 continue
+            # check valid type
             if not isinstance(term_cfg, RecorderTermCfg):
                 raise TypeError(
                     f"Configuration for the term '{term_name}' is not of type RecorderTermCfg."
                     f" Received: '{type(term_cfg)}'."
                 )
             # create the recorder term
-            term = instantiate(term_cfg, self._env)
+            term = term_cfg.class_type(term_cfg, self._env)
             # sanity check if term is valid type
             if not isinstance(term, RecorderTerm):
                 raise TypeError(f"Returned object for the term '{term_name}' is not of type RecorderTerm.")

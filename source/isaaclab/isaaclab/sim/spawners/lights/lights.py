@@ -9,9 +9,7 @@ from typing import TYPE_CHECKING
 
 from pxr import Usd, UsdLux
 
-from isaaclab.utils import to_dict
-
-from ...utils import clone, create_prim, safe_set_attribute_on_usd_prim
+from isaaclab.sim.utils import clone, create_prim, get_current_stage, safe_set_attribute_on_usd_prim
 
 if TYPE_CHECKING:
     from . import lights_cfg
@@ -39,21 +37,35 @@ def spawn_light(
             then the asset is spawned at all the matching prim paths.
         cfg: The configuration for the light source.
         translation: The translation of the prim. Defaults to None, in which case this is set to the origin.
-        orientation: The orientation of the prim as (x, y, z, w). Defaults to None, in which case this
+        orientation: The orientation of the prim as (w, x, y, z). Defaults to None, in which case this
             is set to identity.
         **kwargs: Additional keyword arguments, like ``clone_in_fabric``.
 
     Raises:
         ValueError:  When a prim already exists at the specified prim path.
     """
-    prim = create_prim(prim_path, prim_type=cfg.prim_type, translation=translation, orientation=orientation)
+    # obtain stage handle
+    stage = get_current_stage()
+    # check if prim already exists
+    if stage.GetPrimAtPath(prim_path).IsValid():
+        raise ValueError(f"A prim already exists at path: '{prim_path}'.")
+    # create the prim
+    prim = create_prim(
+        prim_path, prim_type=cfg.prim_type, translation=translation, orientation=orientation, stage=stage
+    )
 
-    # every remaining config field maps onto a USD light attribute
-    cfg = to_dict(cfg)
-    for param_name in ("prim_type", "func", "copy_from_source", "visible", "semantic_tags", "spawn_path"):
+    # convert to dict
+    cfg = cfg.to_dict()
+    # delete spawner func specific parameters
+    del cfg["prim_type"]
+    # delete custom attributes in the config that are not USD parameters
+    non_usd_cfg_param_names = ["func", "copy_from_source", "visible", "semantic_tags"]
+    for param_name in non_usd_cfg_param_names:
         del cfg[param_name]
+    # set into USD API
     for attr_name, value in cfg.items():
-        # texture attributes only exist on dome lights
+        # special operation for texture properties
+        # note: this is only used for dome light
         if "texture" in attr_name:
             light_prim = UsdLux.DomeLight(prim)
             if attr_name == "texture_file":
@@ -63,6 +75,11 @@ def spawn_light(
             else:
                 raise ValueError(f"Unsupported texture attribute: '{attr_name}'.")
         else:
-            prim_prop_name = attr_name if attr_name == "visible_in_primary_ray" else f"inputs:{attr_name}"
+            if attr_name == "visible_in_primary_ray":
+                prim_prop_name = attr_name
+            else:
+                prim_prop_name = f"inputs:{attr_name}"
+            # set the attribute
             safe_set_attribute_on_usd_prim(prim, prim_prop_name, value, camel_case=True)
+    # return the prim
     return prim

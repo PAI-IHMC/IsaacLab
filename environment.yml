@@ -7,6 +7,5 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - python=3.12
-  - pip
+  - python=3.11
   - importlib_metadata

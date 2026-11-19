@@ -7,11 +7,9 @@
 
 Currently, the following sensors are supported:
 
-* Camera: A USD camera prim with settings for pinhole or fisheye projections, optionally carrying an
-  OpenCV lens-distortion calibration.
+* Camera: A USD camera prim with settings for pinhole or fisheye projections.
 
 """
 
-from isaaclab.utils.module import lazy_export
-
-lazy_export()
+from .sensors import spawn_camera
+from .sensors_cfg import FisheyeCameraCfg, PinholeCameraCfg

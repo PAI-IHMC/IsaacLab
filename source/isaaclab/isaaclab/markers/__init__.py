@@ -21,6 +21,5 @@ Currently, the sub-package provides the following classes:
 
 """
 
-from ..utils.module import lazy_export
-
-lazy_export()
+from .config import *  # noqa: F401, F403
+from .visualization_markers import VisualizationMarkers, VisualizationMarkersCfg

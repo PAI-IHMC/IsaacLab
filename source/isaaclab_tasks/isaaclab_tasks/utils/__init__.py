@@ -5,6 +5,5 @@
 
 """Sub-package with utilities, data collectors and environment wrappers."""
 
-from isaaclab.utils.module import lazy_export
-
-lazy_export()
+from .importer import import_packages
+from .parse_cfg import get_checkpoint_path, load_cfg_from_registry, parse_env_cfg

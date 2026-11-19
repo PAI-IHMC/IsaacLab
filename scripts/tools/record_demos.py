@@ -9,19 +9,12 @@ This script allows users to record demonstrations operated by human teleoperatio
 The recorded demonstrations are stored as episodes in a hdf5 file. Users can specify the task, teleoperation
 device, dataset directory, and environment stepping rate through command-line arguments.
 
-This script supports two teleoperation stacks:
-1. Native Isaac Lab teleop stack (via teleop_devices in env_cfg)
-2. Isaac Capture-based stack (via isaac_teleop in env_cfg)
-
-The script automatically detects which stack to use based on the environment config.
-
 required arguments:
     --task                    Name of the task.
 
 optional arguments:
     -h, --help                Show this help message and exit
-    --teleop_device           Legacy teleop device name. When omitted, Isaac Capture is used if
-                              configured, otherwise keyboard. When set, forces the legacy path.
+    --teleop_device           Device for interacting with environment. (default: keyboard)
     --dataset_file            File path to export recorded demos. (default: "./datasets/dataset.hdf5")
     --step_hz                 Environment stepping rate in Hz. (default: 30)
     --num_demos               Number of demonstrations to record. (default: 0)
@@ -29,30 +22,14 @@ optional arguments:
                               (default: 10)
 """
 
-"""Parse CLI first so we can decide whether to launch Isaac Sim Kit."""
-
-# Isaac Lab does not use Warp autodiff; skipping adjoint codegen roughly halves the
-# time spent building kernels on a cold kernel cache.
-import warp as wp
-
-wp.config.enable_backward = False
+"""Launch Isaac Sim Simulator first."""
 
 # Standard library imports
 import argparse
 import contextlib
-import sys
-from typing import TYPE_CHECKING
 
-# Isaac Lab simulation launcher
-from isaaclab.app import add_launcher_args, launch_simulation
-from isaaclab.utils.string import list_intersection, string_to_callable
-
-from isaaclab_tasks.utils import setup_preset_cli
-
-if TYPE_CHECKING:
-    from isaaclab_teleop import XrCameraFeedSession
-
-    from isaaclab_mimic.ui.instruction_display import InstructionDisplay
+# Isaac Lab AppLauncher
+from isaaclab.app import AppLauncher
 
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Record demonstrations for Isaac Lab environments.")
@@ -60,11 +37,11 @@ parser.add_argument("--task", type=str, required=True, help="Name of the task.")
 parser.add_argument(
     "--teleop_device",
     type=str,
-    default=None,
+    default="keyboard",
     help=(
-        "Legacy teleop device name. When omitted, the Isaac Capture pipeline is used if configured in the env,"
-        " otherwise keyboard is used as fallback. When explicitly provided, the script uses the legacy"
-        " teleop_devices path and looks up this name in env_cfg.teleop_devices.devices."
+        "Teleop device. Set here (legacy) or via the environment config. If using the environment config, pass the"
+        " device key/name defined under 'teleop_devices' (it can be a custom name, not necessarily 'handtracking')."
+        " Built-ins: keyboard, spacemouse, gamepad. Not all tasks support all built-ins."
     ),
 )
 parser.add_argument(
@@ -81,86 +58,34 @@ parser.add_argument(
     help="Number of continuous steps with task success for concluding a demo as successful. Default is 10.",
 )
 parser.add_argument(
-    "--reset_sim_buffer_each_episode",
-    action=argparse.BooleanOptionalAction,
-    default=True,
-    help=(
-        "Call env.sim.reset() before the initial episode and between recording attempts."
-        " Use --no-reset_sim_buffer_each_episode to preserve simulation buffers."
-    ),
-)
-parser.add_argument(
-    "--cloudxr_env",
-    type=str,
-    default=None,
-    help=(
-        "Path to a CloudXR .env file, or a shorthand: 'cloudxrjs' (Quest/Pico), 'avp' (Apple Vision Pro),"
-        " or 'standalone' (headless, no XR client). Set to 'none' to disable CloudXR auto-launch entirely."
-        " When unset, defaults to 'cloudxrjs' with --xr and 'standalone' without --xr."
-    ),
-)
-parser.add_argument(
-    "--auto_launch_cloudxr",
-    action=argparse.BooleanOptionalAction,
-    default=True,
-    help="Auto-launch the CloudXR runtime when --cloudxr_env is set. Use --no-auto_launch_cloudxr to disable.",
-)
-parser.add_argument(
-    "--mcap_record_path",
-    type=str,
-    default=None,
-    help=(
-        "Debug-only: write the live Isaac Capture session to this MCAP file (one continuous file for the whole run)."
-        " Intended for pairing with teleop_replay_agent.py in CI -- NOT a data-generation format. MCAPs produced"
-        " here lack per-episode segmentation, world-frame anchor state, env reset state, and have no public Python"
-        " decoder. For data-gen workflows use the HDF5 dataset path (default). Ignored when the Isaac Capture stack"
-        " is not in use."
-    ),
+    "--enable_pinocchio",
+    action="store_true",
+    default=False,
+    help="Enable Pinocchio.",
 )
 
-parser.add_argument(
-    "--enable_debug_visualization",
-    action="store_true",
-    default=False,
-    help="Enable hand joint and controller aim debug visualization at session start (Isaac Capture only).",
-)
-parser.add_argument("--external_callback", default=None, help="Fully qualified path to an externally defined callback.")
-parser.add_argument(
-    "--disable_external_cameras",
-    action="store_true",
-    default=False,
-    help=(
-        "Disable external camera rendering. External cameras render by default for teleoperation;"
-        " pass this flag to strip camera sensors from the environment (e.g. to reduce GPU contention"
-        " and improve XR performance)."
-    ),
-)
-# append simulation launcher cli args
-add_launcher_args(parser)
+# append AppLauncher cli args
+AppLauncher.add_app_launcher_args(parser)
 # parse the arguments
-args_cli, hydra_args = setup_preset_cli(parser)
+args_cli = parser.parse_args()
 
 # Validate required arguments
 if args_cli.task is None:
     parser.error("--task is required")
 
-# Enable external camera rendering by default (``--disable_external_cameras`` turns it off). The
-# ``--enable_cameras`` CLI flag was removed in Isaac Lab 3.0 (see #6656), so pass the intent to
-# the launcher; this selects a camera-rendering experience that provides RTX/DLSS support.
-# Everywhere else we read ``args_cli.disable_external_cameras`` directly.
-args_cli.enable_cameras = not args_cli.disable_external_cameras
-# the recording UI, the teleop input devices, and the RTX settings use Kit APIs directly
-args_cli.require_kit = True
+app_launcher_args = vars(args_cli)
 
-# Call an external callback if requested.
-remaining_args_env_registration = None
-if args_cli.external_callback:
-    external_callback_function = string_to_callable(args_cli.external_callback, separator=".")
-    remaining_args_env_registration = external_callback_function()
+if args_cli.enable_pinocchio:
+    # Import pinocchio before AppLauncher to force the use of the version
+    # installed by IsaacLab and not the one installed by Isaac Sim.
+    # pinocchio is required by the Pink IK controllers and the GR1T2 retargeter
+    import pinocchio  # noqa: F401
+if "handtracking" in args_cli.teleop_device.lower():
+    app_launcher_args["xr"] = True
 
-# Hand arguments consumed by neither this parser nor the callback over to Hydra.
-hydra_args = list_intersection(hydra_args, remaining_args_env_registration)
-sys.argv = [sys.argv[0]] + hydra_args
+# launch the simulator
+app_launcher = AppLauncher(args_cli)
+simulation_app = app_launcher.app
 
 """Rest everything follows."""
 
@@ -169,69 +94,35 @@ sys.argv = [sys.argv[0]] + hydra_args
 import logging
 import os
 import time
-from collections.abc import Callable
 
 import gymnasium as gym
 import torch
-from isaaclab_physx.renderers import IsaacRtxRendererGlobalSettingsCfg
 
+import omni.ui as ui
+
+from isaaclab.devices import Se3Keyboard, Se3KeyboardCfg, Se3SpaceMouse, Se3SpaceMouseCfg
 from isaaclab.devices.openxr import remove_camera_configs
 from isaaclab.devices.teleop_device_factory import create_teleop_device
-from isaaclab.envs import DirectRLEnvCfg, ManagerBasedRLEnvCfg
-from isaaclab.envs.mdp.recorders.recorders_cfg import ActionStateRecorderManagerCfg
-from isaaclab.envs.utils._manual_success import _prepare_success_term
-from isaaclab.managers import CommandTermCfg, DatasetExportMode
 
 import isaaclab_mimic.envs  # noqa: F401
+from isaaclab_mimic.ui.instruction_display import InstructionDisplay, show_subtask_instructions
+
+if args_cli.enable_pinocchio:
+    import isaaclab_tasks.manager_based.locomanipulation.pick_place  # noqa: F401
+    import isaaclab_tasks.manager_based.manipulation.pick_place  # noqa: F401
+
+from collections.abc import Callable
+
+from isaaclab.envs import DirectRLEnvCfg, ManagerBasedRLEnvCfg
+from isaaclab.envs.mdp.recorders.recorders_cfg import ActionStateRecorderManagerCfg
+from isaaclab.envs.ui import EmptyWindow
+from isaaclab.managers import DatasetExportMode
 
 import isaaclab_tasks  # noqa: F401
-from isaaclab_tasks.utils import resolve_task_config
-from isaaclab_tasks.utils.parse_cfg import load_cfg_from_registry
+from isaaclab_tasks.utils.parse_cfg import parse_env_cfg
 
+# import logger
 logger = logging.getLogger(__name__)
-
-_CLOUDXR_ENV_SHORTHANDS: dict[str, str] = {}
-
-# CommandTerm samples its timer with uniform_, which requires finite bounds.
-_RECORDING_COMMAND_RESAMPLING_TIME_S = 1.0e9
-
-
-def _resolve_cloudxr_env(value: str | None, xr_enabled: bool = False) -> str | None:
-    """Resolve ``--cloudxr_env`` shorthands to absolute ``.env`` file paths.
-
-    Accepts ``"cloudxrjs"`` (Quest/Pico), ``"avp"`` (Apple Vision Pro),
-    ``"standalone"`` (headless, no XR client), ``"none"`` (disable), or an
-    arbitrary file path. When *value* is ``None`` (flag unset), defaults to
-    ``"cloudxrjs"`` when *xr_enabled* else ``"standalone"`` -- so a run without
-    ``--xr`` uses the clientless headless profile.
-    """
-    if value is None:
-        value = "cloudxrjs" if xr_enabled else "standalone"
-    if value.strip() == "" or value.lower() == "none":
-        return None
-    if not _CLOUDXR_ENV_SHORTHANDS:
-        from isaaclab_teleop import CLOUDXR_AVP_ENV, CLOUDXR_JS_ENV, CLOUDXR_STANDALONE_ENV
-
-        _CLOUDXR_ENV_SHORTHANDS["cloudxrjs"] = CLOUDXR_JS_ENV
-        _CLOUDXR_ENV_SHORTHANDS["avp"] = CLOUDXR_AVP_ENV
-        _CLOUDXR_ENV_SHORTHANDS["standalone"] = CLOUDXR_STANDALONE_ENV
-    return _CLOUDXR_ENV_SHORTHANDS.get(value.lower(), value)
-
-
-def _rtx_rendering_requested(args: argparse.Namespace) -> bool:
-    """Return whether the CLI selects a renderer that actually drives RTX rendering.
-
-    The RTX/DLSS global settings are only meaningful when something renders through RTX.
-    That happens when the Kit visualizer is enabled (``--viz kit``), when external cameras
-    are rendered (on by default; see ``--disable_external_cameras``), or in XR mode (``--xr``).
-    A pure-headless session with none of these renders nothing.
-
-    This reads the resolved namespace intent rather than any Kit/carb runtime state so the
-    check keeps working as these scripts grow support for other renderers and kitless runs.
-    """
-    visualizers = getattr(args, "visualizer", None) or []
-    external_cameras = not getattr(args, "disable_external_cameras", False)
-    return external_cameras or ("kit" in visualizers) or bool(getattr(args, "xr", False))
 
 
 class RateLimiter:
@@ -292,7 +183,7 @@ def setup_output_directories() -> tuple[str, str]:
 
 def create_environment_config(
     output_dir: str, output_file_name: str
-) -> tuple[ManagerBasedRLEnvCfg | DirectRLEnvCfg, object | None, bool]:
+) -> tuple[ManagerBasedRLEnvCfg | DirectRLEnvCfg, object | None]:
     """Create and configure the environment configuration.
 
     Parses the environment configuration and makes necessary adjustments for demo recording.
@@ -303,77 +194,49 @@ def create_environment_config(
         output_file_name: Name of the file to store the demonstrations
 
     Returns:
-        tuple[isaaclab_tasks.utils.parse_cfg.EnvCfg, Optional[object], bool]: A tuple containing:
+        tuple[isaaclab_tasks.utils.parse_cfg.EnvCfg, Optional[object]]: A tuple containing:
             - env_cfg: The configured environment configuration
             - success_term: The success termination object or None if not available
-            - use_isaac_teleop: Whether Isaac Capture stack should be used
 
     Raises:
         Exception: If parsing the environment configuration fails
     """
-    # Resolve the task configuration through Hydra so CLI presets are applied.
+    # parse configuration
     try:
-        env_cfg, _ = resolve_task_config(args_cli.task, "")
-        env_cfg.sim.device = args_cli.device
-        env_cfg.scene.num_envs = 1
+        env_cfg = parse_env_cfg(args_cli.task, device=args_cli.device, num_envs=1)
         env_cfg.env_name = args_cli.task.split(":")[-1]
     except Exception as e:
         logger.error(f"Failed to parse environment configuration: {e}")
         exit(1)
 
-    # When --teleop_device is explicitly provided, use the legacy teleop_devices path
-    # even if isaac_teleop is configured. Otherwise prefer isaac_teleop when available.
-    teleop_device_explicitly_set = args_cli.teleop_device is not None
-    use_isaac_teleop = (
-        not teleop_device_explicitly_set and hasattr(env_cfg, "isaac_teleop") and env_cfg.isaac_teleop is not None
-    )
-
-    # Extract the success condition for manual evaluation in the main loop. Keep
-    # an inert term registered under the same name so rewards and other manager
-    # terms that reference "success" can still resolve it during initialization.
-    success_term = _prepare_success_term(env_cfg)
-    if success_term is None:
+    # extract success checking function to invoke in the main loop
+    success_term = None
+    if hasattr(env_cfg.terminations, "success"):
+        success_term = env_cfg.terminations.success
+        env_cfg.terminations.success = None
+    else:
         logger.warning(
             "No success termination term was found in the environment."
             " Will not be able to mark recorded demos as successful."
         )
 
-    # XR-rendering setup is only needed for the Kit XR path. Without --xr,
-    # Isaac Capture runs standalone (I/O only) and renders normally.
     if args_cli.xr:
-        # Strip camera configs only when external cameras are explicitly disabled; otherwise keep
-        # them (defaulted on) so cameras render alongside the XR view.
-        if args_cli.disable_external_cameras:
+        # If cameras are not enabled and XR is enabled, remove camera configs
+        if not args_cli.enable_cameras:
             env_cfg = remove_camera_configs(env_cfg)
+        env_cfg.sim.render.antialiasing_mode = "DLSS"
 
     # modify configuration such that the environment runs indefinitely until
     # the goal is reached or other termination conditions are met
     env_cfg.terminations.time_out = None
     env_cfg.observations.policy.concatenate_terms = False
 
-    # Keep each demonstration's goals fixed; command generators still sample
-    # fresh goals when the environment resets for the next recording attempt.
-    if env_cfg.commands is not None:
-        command_cfgs = (
-            env_cfg.commands.values() if isinstance(env_cfg.commands, dict) else vars(env_cfg.commands).values()
-        )
-        for command_cfg in command_cfgs:
-            if isinstance(command_cfg, CommandTermCfg):
-                command_cfg.resampling_time_range = (
-                    _RECORDING_COMMAND_RESAMPLING_TIME_S,
-                    _RECORDING_COMMAND_RESAMPLING_TIME_S,
-                )
-
-    demo_recorder_cfg_entry_point = gym.spec(args_cli.task.split(":")[-1]).kwargs.get("demo_recorder_cfg_entry_point")
-    if demo_recorder_cfg_entry_point is None:
-        env_cfg.recorders = ActionStateRecorderManagerCfg()
-    else:
-        env_cfg.recorders = load_cfg_from_registry(args_cli.task, "demo_recorder_cfg_entry_point")
+    env_cfg.recorders: ActionStateRecorderManagerCfg = ActionStateRecorderManagerCfg()
     env_cfg.recorders.dataset_export_dir_path = output_dir
     env_cfg.recorders.dataset_filename = output_file_name
     env_cfg.recorders.dataset_export_mode = DatasetExportMode.EXPORT_SUCCEEDED_ONLY
 
-    return env_cfg, success_term, use_isaac_teleop
+    return env_cfg, success_term
 
 
 def create_environment(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg) -> gym.Env:
@@ -381,7 +244,7 @@ def create_environment(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg) -> gym.En
 
     Args:
         env_cfg: The environment configuration object that defines the environment properties.
-            This should be an instance of EnvCfg created by resolve_task_config().
+            This should be an instance of EnvCfg created by parse_env_cfg().
 
     Returns:
         gym.Env: A Gymnasium environment instance for the specified task.
@@ -397,19 +260,7 @@ def create_environment(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg) -> gym.En
         exit(1)
 
 
-def _create_builtin_device(device_name: str) -> object | None:
-    """Create a built-in teleop device by name, or return None if unrecognized."""
-    from isaaclab.devices import Se3Keyboard, Se3KeyboardCfg, Se3SpaceMouse, Se3SpaceMouseCfg
-
-    name = device_name.lower()
-    if name == "keyboard":
-        return Se3Keyboard(Se3KeyboardCfg(pos_sensitivity=0.2, rot_sensitivity=0.5))
-    elif name == "spacemouse":
-        return Se3SpaceMouse(Se3SpaceMouseCfg(pos_sensitivity=0.2, rot_sensitivity=0.5))
-    return None
-
-
-def setup_teleop_device(callbacks: dict[str, Callable], use_isaac_teleop: bool = False) -> object:
+def setup_teleop_device(callbacks: dict[str, Callable]) -> object:
     """Set up the teleoperation device based on configuration.
 
     Attempts to create a teleoperation device based on the environment configuration.
@@ -418,7 +269,6 @@ def setup_teleop_device(callbacks: dict[str, Callable], use_isaac_teleop: bool =
     Args:
         callbacks: Dictionary mapping callback keys to functions that will be
                    attached to the teleop device
-        use_isaac_teleop: Whether to use Isaac Capture stack instead of native stack
 
     Returns:
         object: The configured teleoperation device interface
@@ -426,48 +276,25 @@ def setup_teleop_device(callbacks: dict[str, Callable], use_isaac_teleop: bool =
     Raises:
         Exception: If teleop device creation fails
     """
-    teleop_device_explicitly_set = args_cli.teleop_device is not None
     teleop_interface = None
     try:
-        if use_isaac_teleop:
-            from isaaclab_teleop import create_isaac_teleop_device
-
-            teleop_interface = create_isaac_teleop_device(
-                env_cfg.isaac_teleop,
-                sim_device=args_cli.device,
-                callbacks=callbacks,
-                cloudxr_env_file=_resolve_cloudxr_env(args_cli.cloudxr_env, args_cli.xr),
-                auto_launch_cloudxr=args_cli.auto_launch_cloudxr,
-                use_kit_xr_bridge=args_cli.xr,
-                mcap_record_path=args_cli.mcap_record_path,
-                enable_debug_visualization=args_cli.enable_debug_visualization,
-                haptic_cfg=getattr(env_cfg, "haptic_feedback", None),
-            )
-            if args_cli.mcap_record_path is not None:
-                logger.info("Recording live Isaac Capture session to MCAP (debug-only): %s", args_cli.mcap_record_path)
-
-        elif teleop_device_explicitly_set:
-            device_name = args_cli.teleop_device
-            if hasattr(env_cfg, "teleop_devices") and device_name in env_cfg.teleop_devices.devices:
-                teleop_interface = create_teleop_device(device_name, env_cfg.teleop_devices.devices, callbacks)
-            else:
-                teleop_interface = _create_builtin_device(device_name)
-                if teleop_interface is None:
-                    logger.error(
-                        f"--teleop_device={device_name} was passed but no matching entry exists in"
-                        " env_cfg.teleop_devices and it is not a built-in device name. Either remove"
-                        " --teleop_device to use the Isaac Capture pipeline, or add a"
-                        f" '{device_name}' entry under teleop_devices in the environment config."
-                        " Built-in devices: keyboard, spacemouse."
-                    )
-                    exit(1)
-                for key, callback in callbacks.items():
-                    teleop_interface.add_callback(key, callback)
+        if hasattr(env_cfg, "teleop_devices") and args_cli.teleop_device in env_cfg.teleop_devices.devices:
+            teleop_interface = create_teleop_device(args_cli.teleop_device, env_cfg.teleop_devices.devices, callbacks)
         else:
-            from isaaclab.devices import Se3Keyboard, Se3KeyboardCfg
+            logger.warning(
+                f"No teleop device '{args_cli.teleop_device}' found in environment config. Creating default."
+            )
+            # Create fallback teleop device
+            if args_cli.teleop_device.lower() == "keyboard":
+                teleop_interface = Se3Keyboard(Se3KeyboardCfg(pos_sensitivity=0.2, rot_sensitivity=0.5))
+            elif args_cli.teleop_device.lower() == "spacemouse":
+                teleop_interface = Se3SpaceMouse(Se3SpaceMouseCfg(pos_sensitivity=0.2, rot_sensitivity=0.5))
+            else:
+                logger.error(f"Unsupported teleop device: {args_cli.teleop_device}")
+                logger.error("Supported devices: keyboard, spacemouse, handtracking")
+                exit(1)
 
-            # No --teleop_device and no isaac_teleop: fall back to keyboard
-            teleop_interface = Se3Keyboard(Se3KeyboardCfg(pos_sensitivity=0.2, rot_sensitivity=0.5))
+            # Add callbacks to fallback device
             for key, callback in callbacks.items():
                 teleop_interface.add_callback(key, callback)
     except Exception as e:
@@ -481,7 +308,7 @@ def setup_teleop_device(callbacks: dict[str, Callable], use_isaac_teleop: bool =
     return teleop_interface
 
 
-def setup_ui(label_text: str, env: gym.Env) -> "InstructionDisplay":
+def setup_ui(label_text: str, env: gym.Env) -> InstructionDisplay:
     """Set up the user interface elements.
 
     Creates instruction display and UI window with labels for showing information
@@ -494,12 +321,6 @@ def setup_ui(label_text: str, env: gym.Env) -> "InstructionDisplay":
     Returns:
         InstructionDisplay: The configured instruction display object
     """
-    import omni.ui as ui
-
-    from isaaclab.envs.ui import EmptyWindow
-
-    from isaaclab_mimic.ui.instruction_display import InstructionDisplay
-
     instruction_display = InstructionDisplay(args_cli.xr)
     if not args_cli.xr:
         window = EmptyWindow(env, "Instruction")
@@ -547,47 +368,36 @@ def process_success_condition(env: gym.Env, success_term: object | None, success
 
 
 def handle_reset(
-    env: gym.Env,
-    success_step_count: int,
-    instruction_display: "InstructionDisplay",
-    label_text: str,
-    teleop_interface: object | None = None,
+    env: gym.Env, success_step_count: int, instruction_display: InstructionDisplay, label_text: str
 ) -> int:
     """Handle resetting the environment.
 
-    Resets the environment, recorder manager, teleop device, and related
-    state variables.  Updates the instruction display with current status.
+    Resets the environment, recorder manager, and related state variables.
+    Updates the instruction display with current status.
 
     Args:
-        env: The environment instance to reset.
-        success_step_count: Current count of consecutive successful steps.
-        instruction_display: The display object to update.
-        label_text: Text to display showing current recording status.
-        teleop_interface: Optional teleop device to reset (resets XR anchor
-            and retargeter cross-step state).
+        env: The environment instance to reset
+        success_step_count: Current count of consecutive successful steps
+        instruction_display: The display object to update
+        label_text: Text to display showing current recording status
 
     Returns:
-        Reset success step count (0).
+        int: Reset success step count (0)
     """
     print("Resetting environment...")
-    if args_cli.reset_sim_buffer_each_episode:
-        env.sim.reset()
+    env.sim.reset()
     env.recorder_manager.reset()
     env.reset()
-    if teleop_interface is not None and hasattr(teleop_interface, "reset"):
-        teleop_interface.reset()
     success_step_count = 0
     instruction_display.show_demo(label_text)
     return success_step_count
 
 
-def run_simulation_loop(  # noqa: C901
+def run_simulation_loop(
     env: gym.Env,
     teleop_interface: object | None,
     success_term: object | None,
     rate_limiter: RateLimiter | None,
-    camera_feed_session: "XrCameraFeedSession",
-    use_isaac_teleop: bool = False,
 ) -> int:
     """Run the main simulation loop for collecting demonstrations.
 
@@ -600,8 +410,6 @@ def run_simulation_loop(  # noqa: C901
         teleop_interface: Optional teleop interface (will be created if None)
         success_term: The success termination object or None if not available
         rate_limiter: Optional rate limiter to control simulation speed
-        camera_feed_session: Shared XR camera-feed lifecycle
-        use_isaac_teleop: Whether to use Isaac Capture stack
 
     Returns:
         int: Number of successful demonstrations recorded
@@ -609,21 +417,11 @@ def run_simulation_loop(  # noqa: C901
     current_recorded_demo_count = 0
     success_step_count = 0
     should_reset_recording_instance = False
-    # For Isaac Capture or XR, default to inactive until START is triggered. Without
-    # --xr, recording is started locally (see ``request_start`` below) instead of by
-    # a headset; it flows through the same state machine so keyboard/host pause/resume
-    # keeps working.
-    running_recording_instance = not (args_cli.xr or use_isaac_teleop)
+    running_recording_instance = not args_cli.xr
 
     # Callback closures for the teleop device
     def reset_recording_instance():
         nonlocal should_reset_recording_instance
-        if success_step_count > 0:
-            print(
-                "Manual reset ignored. Success has fired and post-success steps are still recording. Please wait for"
-                " the automatic reset."
-            )
-            return
         should_reset_recording_instance = True
         print("Recording instance reset requested")
 
@@ -637,9 +435,7 @@ def run_simulation_loop(  # noqa: C901
         running_recording_instance = False
         print("Recording paused")
 
-    # Set up teleoperation callbacks.  For Isaac Capture the primary control
-    # path is poll_control_events(); these callbacks are bridged automatically
-    # and also serve native (keyboard / spacemouse) devices.
+    # Set up teleoperation callbacks
     teleoperation_callbacks = {
         "R": reset_recording_instance,
         "START": start_recording_instance,
@@ -647,159 +443,74 @@ def run_simulation_loop(  # noqa: C901
         "RESET": reset_recording_instance,
     }
 
-    teleop_interface = setup_teleop_device(teleoperation_callbacks, use_isaac_teleop)
+    teleop_interface = setup_teleop_device(teleoperation_callbacks)
+    teleop_interface.add_callback("R", reset_recording_instance)
 
-    # Optional controller haptics: no-ops unless the env declares a
-    # ``haptic_feedback`` config and the device can render it (Isaac Capture).
-    # ``haptic_update`` renders the current contact force; ``haptic_stop`` zeroes
-    # it so a stale pulse does not persist while recording is paused.
-    haptic_update, haptic_stop = (lambda: None), (lambda: None)
-    if use_isaac_teleop:
-        from isaaclab_teleop import create_haptic_feedback_driver
-
-        _haptic_driver = create_haptic_feedback_driver(env.unwrapped, teleop_interface, env_cfg)
-        if _haptic_driver is not None:
-            haptic_update, haptic_stop = _haptic_driver.update, _haptic_driver.stop
-
-    # Optional keyboard for headset-free Isaac Capture control (start / pause / reset).
-    # Captured through the app window, so only wired when one is present; a
-    # windowless run still auto-starts in ``inner_loop``. Kept in a local so its carb
-    # input subscription is not garbage-collected. ``R`` is an operator reset:
-    # ``reset(pause=True)`` injects a single RESET pulse (the control-event handler
-    # turns it into one env reset) and pauses the session -- binding it straight to
-    # ``reset_recording_instance`` would reset the env twice.
-    control_keyboard = None
-    # a local window exists (GUI or livestream) unless XR runs headless without a viewport
-    has_window = env.sim.has_gui and not env.sim.get_setting("/isaaclab/xr/auto_start")
-    if use_isaac_teleop and has_window:
-        from isaaclab.devices import Se3Keyboard, Se3KeyboardCfg
-
-        try:
-            control_keyboard = Se3Keyboard(Se3KeyboardCfg(pos_sensitivity=0.0, rot_sensitivity=0.0))
-            control_keyboard.add_callback("B", teleop_interface.request_start)
-            control_keyboard.add_callback("P", teleop_interface.request_stop)
-            control_keyboard.add_callback("R", lambda: teleop_interface.reset(pause=True))
-            print("Isaac Capture control keys: [B] start/resume  [P] pause  [R] reset")
-        except Exception as e:
-            logger.warning(f"Control keyboard unavailable ({e}); recording still auto-starts without --xr")
-            control_keyboard = None
+    # Reset before starting
+    env.sim.reset()
+    env.reset()
+    teleop_interface.reset()
 
     label_text = f"Recorded {current_recorded_demo_count} successful demonstrations."
     instruction_display = setup_ui(label_text, env)
 
-    def inner_loop():
-        """Inner loop function with access to nonlocal variables."""
-        nonlocal current_recorded_demo_count, success_step_count, should_reset_recording_instance
-        nonlocal running_recording_instance, label_text
+    subtasks = {}
 
-        # Reset before starting
-        if args_cli.reset_sim_buffer_each_episode:
-            env.sim.reset()
-        env.reset()
-        teleop_interface.reset()
+    with contextlib.suppress(KeyboardInterrupt) and torch.inference_mode():
+        while simulation_app.is_running():
+            # Get keyboard command
+            action = teleop_interface.advance()
+            # Expand to batch dimension
+            actions = action.repeat(env.num_envs, 1)
 
-        # Without --xr there is no headset to send START, so drive the Isaac Capture
-        # state machine to RUNNING locally ([B]/[P] can still pause/resume). The reset()
-        # above is a host reset (a pure pulse), so it does not cancel this start.
-        if use_isaac_teleop and not args_cli.xr:
-            teleop_interface.request_start()
+            # Perform action on environment
+            if running_recording_instance:
+                # Compute actions based on environment
+                obv = env.step(actions)
+                if subtasks is not None:
+                    if subtasks == {}:
+                        subtasks = obv[0].get("subtask_terms")
+                    elif subtasks:
+                        show_subtask_instructions(instruction_display, subtasks, obv, env.cfg)
+            else:
+                env.sim.render()
 
-        subtasks = {}
-        stack_name = "Isaac Capture" if use_isaac_teleop else "native"
-        print(f"{stack_name} recording started.")
+            # Check for success condition
+            success_step_count, success_reset_needed = process_success_condition(env, success_term, success_step_count)
+            if success_reset_needed:
+                should_reset_recording_instance = True
 
-        if use_isaac_teleop:
-            from isaaclab_teleop import poll_control_events
+            # Update demo count if it has changed
+            if env.recorder_manager.exported_successful_episode_count > current_recorded_demo_count:
+                current_recorded_demo_count = env.recorder_manager.exported_successful_episode_count
+                label_text = f"Recorded {current_recorded_demo_count} successful demonstrations."
+                print(label_text)
 
-        from isaaclab_mimic.ui.instruction_display import show_subtask_instructions
+            # Check if we've reached the desired number of demos
+            if args_cli.num_demos > 0 and env.recorder_manager.exported_successful_episode_count >= args_cli.num_demos:
+                label_text = f"All {current_recorded_demo_count} demonstrations recorded.\nExiting the app."
+                instruction_display.show_demo(label_text)
+                print(label_text)
+                target_time = time.time() + 0.8
+                while time.time() < target_time:
+                    if rate_limiter:
+                        rate_limiter.sleep(env)
+                    else:
+                        env.sim.render()
+                break
 
-        with contextlib.suppress(KeyboardInterrupt), torch.inference_mode(), camera_feed_session.bind(env):
-            while env.sim.is_running():
-                # Get teleop command (may be None while waiting for session start)
-                action = teleop_interface.advance()
+            # Handle reset if requested
+            if should_reset_recording_instance:
+                success_step_count = handle_reset(env, success_step_count, instruction_display, label_text)
+                should_reset_recording_instance = False
 
-                if use_isaac_teleop:
-                    ctrl = poll_control_events(teleop_interface)
-                    if ctrl.is_active is not None:
-                        running_recording_instance = ctrl.is_active
-                    if ctrl.should_reset:
-                        should_reset_recording_instance = True
+            # Check if simulation is stopped
+            if env.sim.is_stopped():
+                break
 
-                if action is None:
-                    env.sim.render()
-                    haptic_stop()
-                    continue
-                # Expand to batch dimension
-                actions = action.repeat(env.num_envs, 1)
-
-                # Perform action on environment
-                if running_recording_instance:
-                    # Compute actions based on environment
-                    obv = env.step(actions)
-                    # render controller haptics from post-step contact forces
-                    haptic_update()
-                    if subtasks is not None:
-                        if subtasks == {}:
-                            subtasks = obv[0].get("subtask_terms")
-                        elif subtasks:
-                            show_subtask_instructions(instruction_display, subtasks, obv, env.cfg)
-                else:
-                    env.sim.render()
-                    # not stepping: zero haptics so a paused grip stops buzzing
-                    haptic_stop()
-
-                # Check for success condition
-                success_step_count_new, success_reset_needed = process_success_condition(
-                    env, success_term, success_step_count
-                )
-                success_step_count = success_step_count_new
-                if success_reset_needed:
-                    should_reset_recording_instance = True
-
-                # Update demo count if it has changed
-                if env.recorder_manager.exported_successful_episode_count > current_recorded_demo_count:
-                    current_recorded_demo_count = env.recorder_manager.exported_successful_episode_count
-                    label_text = f"Recorded {current_recorded_demo_count} successful demonstrations."
-                    print(label_text)
-
-                # Check if we've reached the desired number of demos
-                if (
-                    args_cli.num_demos > 0
-                    and env.recorder_manager.exported_successful_episode_count >= args_cli.num_demos
-                ):
-                    label_text = f"All {current_recorded_demo_count} demonstrations recorded.\nExiting the app."
-                    instruction_display.show_demo(label_text)
-                    print(label_text)
-                    target_time = time.time() + 0.8
-                    while time.time() < target_time:
-                        if rate_limiter:
-                            rate_limiter.sleep(env)
-                        else:
-                            env.sim.render()
-                    break
-
-                # Handle reset if requested
-                if should_reset_recording_instance:
-                    success_step_count = handle_reset(
-                        env, success_step_count, instruction_display, label_text, teleop_interface
-                    )
-                    camera_feed_session.refresh()
-                    should_reset_recording_instance = False
-
-                # Check if simulation is stopped
-                if env.sim.is_stopped():
-                    break
-
-                # Rate limiting
-                if rate_limiter:
-                    rate_limiter.sleep(env)
-
-    # Run the loop with or without context manager based on stack
-    if use_isaac_teleop:
-        with teleop_interface:
-            inner_loop()
-    else:
-        inner_loop()
+            # Rate limiting
+            if rate_limiter:
+                rate_limiter.sleep(env)
 
     return current_recorded_demo_count
 
@@ -817,45 +528,7 @@ def main() -> None:
     Raises:
         Exception: Propagates exceptions from any of the called functions
     """
-    # Set up output directories
-    output_dir, output_file_name = setup_output_directories()
-
-    # Create and configure environment
-    global env_cfg  # Make env_cfg available to setup_teleop_device
-    env_cfg, success_term, use_isaac_teleop = create_environment_config(output_dir, output_file_name)
-
-    with launch_simulation(env_cfg, args_cli), contextlib.ExitStack() as cleanup:
-        record_demos(success_term, use_isaac_teleop, cleanup)
-
-
-def record_demos(success_term: object | None, use_isaac_teleop: bool, cleanup: contextlib.ExitStack) -> None:
-    """Create the environment and record demonstrations until the session ends."""
-    from isaaclab_physx.renderers.isaac_rtx_renderer_utils import apply_isaac_rtx_global_settings
-    from isaaclab_teleop import XrCameraFeedSession
-
-    # Apply the RTX/DLSS global settings when an RTX render pipeline will run (Kit visualizer,
-    # external cameras, or XR).
-    if _rtx_rendering_requested(args_cli):
-        apply_isaac_rtx_global_settings(
-            IsaacRtxRendererGlobalSettingsCfg(antialiasing_mode="DLSS"),
-        )
-
-    camera_feed_session = XrCameraFeedSession.prepare(
-        env_cfg,
-        enabled=args_cli.xr and use_isaac_teleop,
-        camera_rendering_enabled=not args_cli.disable_external_cameras,
-    )
-    cleanup.callback(camera_feed_session.close)
-    if camera_feed_session.requires_responsive_denoising:
-        apply_isaac_rtx_global_settings(
-            IsaacRtxRendererGlobalSettingsCfg(
-                carb_settings={"/rtx/dldenoiser/responsiveDenoising": True},
-            )
-        )
-
-    # With --xr, rate limiting is achieved via OpenXR and the XR visualization
-    # manager is installed. Without --xr (including standalone Isaac Capture I/O),
-    # fall back to the software rate limiter and skip the XR viz stack.
+    # if handtracking is selected, rate limiting is achieved via OpenXR
     if args_cli.xr:
         rate_limiter = None
         from isaaclab.ui.xr_widgets import TeleopVisualizationManager, XRVisualization
@@ -865,13 +538,18 @@ def record_demos(success_term: object | None, use_isaac_teleop: bool, cleanup: c
     else:
         rate_limiter = RateLimiter(args_cli.step_hz)
 
+    # Set up output directories
+    output_dir, output_file_name = setup_output_directories()
+
+    # Create and configure environment
+    global env_cfg  # Make env_cfg available to setup_teleop_device
+    env_cfg, success_term = create_environment_config(output_dir, output_file_name)
+
     # Create environment
     env = create_environment(env_cfg)
 
     # Run simulation loop
-    current_recorded_demo_count = run_simulation_loop(
-        env, None, success_term, rate_limiter, camera_feed_session, use_isaac_teleop
-    )
+    current_recorded_demo_count = run_simulation_loop(env, None, success_term, rate_limiter)
 
     # Clean up
     env.close()
@@ -882,3 +560,5 @@ def record_demos(success_term: object | None, use_isaac_teleop: bool, cleanup: c
 if __name__ == "__main__":
     # run the main function
     main()
+    # close sim app
+    simulation_app.close()

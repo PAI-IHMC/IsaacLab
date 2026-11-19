@@ -10,13 +10,11 @@ from __future__ import annotations
 from dataclasses import MISSING
 from typing import TYPE_CHECKING
 
-import torch
-
-from ..utils import configclass
+from isaaclab.utils import configclass
 
 if TYPE_CHECKING:
-    from ..assets import Articulation, RigidObject, RigidObjectCollection
-    from ..scene import InteractiveScene
+    from isaaclab.assets import Articulation, RigidObject, RigidObjectCollection
+    from isaaclab.scene import InteractiveScene
 
 
 @configclass
@@ -25,12 +23,6 @@ class SceneEntityCfg:
 
     This class is used to specify the name of the scene entity that is queried from the
     :class:`InteractiveScene` and passed to the manager's term function.
-
-    Selections follow a build-then-finalize lifecycle. :meth:`resolve` fills the ``*_ids`` fields with
-    host lists, which class-based terms may read during construction. :meth:`finalize` then replaces each
-    list with a ``torch.long`` tensor on the device. Slices stay slices. Managers finalize their term
-    configurations once all terms are constructed, so term calls index with device selections directly.
-    Tensors are only produced by :meth:`finalize`; configure selections with names, integer lists, or slices.
     """
 
     name: str = MISSING
@@ -46,10 +38,10 @@ class SceneEntityCfg:
     The names can be either joint names or a regular expression matching the joint names.
 
     These are converted to joint indices on initialization of the manager and passed to the term
-    function as joint indices under :attr:`joint_ids`.
+    function as a list of joint indices under :attr:`joint_ids`.
     """
 
-    joint_ids: list[int] | slice | torch.Tensor = slice(None)
+    joint_ids: list[int] | slice = slice(None)
     """The indices of the joints from the asset required by the term. Defaults to slice(None), which means
     all the joints in the asset (if present).
 
@@ -63,10 +55,10 @@ class SceneEntityCfg:
     The names can be either joint names or a regular expression matching the joint names.
 
     These are converted to fixed tendon indices on initialization of the manager and passed to the term
-    function as fixed tendon indices under :attr:`fixed_tendon_ids`.
+    function as a list of fixed tendon indices under :attr:`fixed_tendon_ids`.
     """
 
-    fixed_tendon_ids: list[int] | slice | torch.Tensor = slice(None)
+    fixed_tendon_ids: list[int] | slice = slice(None)
     """The indices of the fixed tendons from the asset required by the term. Defaults to slice(None), which means
     all the fixed tendons in the asset (if present).
 
@@ -80,10 +72,10 @@ class SceneEntityCfg:
     The names can be either body names or a regular expression matching the body names.
 
     These are converted to body indices on initialization of the manager and passed to the term
-    function as body indices under :attr:`body_ids`.
+    function as a list of body indices under :attr:`body_ids`.
     """
 
-    body_ids: list[int] | slice | torch.Tensor = slice(None)
+    body_ids: list[int] | slice = slice(None)
     """The indices of the bodies from the asset required by the term. Defaults to slice(None), which means
     all the bodies in the asset.
 
@@ -97,10 +89,10 @@ class SceneEntityCfg:
     The names can be either names or a regular expression matching the object names in the collection.
 
     These are converted to object indices on initialization of the manager and passed to the term
-    function as object indices under :attr:`object_collection_ids`.
+    function as a list of object indices under :attr:`object_collection_ids`.
     """
 
-    object_collection_ids: list[int] | slice | torch.Tensor = slice(None)
+    object_collection_ids: list[int] | slice = slice(None)
     """The indices of the objects from the rigid object collection required by the term. Defaults to slice(None),
     which means all the objects in the collection.
 
@@ -141,6 +133,7 @@ class SceneEntityCfg:
             ValueError: If both ``object_collection_names`` and ``object_collection_ids`` are specified and
                 are not consistent.
         """
+        # check if the entity is valid
         if self.name not in scene.keys():
             raise ValueError(f"The scene entity '{self.name}' does not exist. Available entities: {scene.keys()}.")
 
@@ -155,22 +148,6 @@ class SceneEntityCfg:
 
         # convert object collection names to indices based on regex
         self._resolve_object_collection_names(scene)
-
-    def finalize(self, device: str) -> None:
-        """Move resolved index selections to the device.
-
-        Each non-slice ``*_ids`` selection becomes a ``torch.long`` tensor, so indexing and asset write
-        methods use it without a host-to-device upload. Terms share the tensor, so callers must not modify
-        it in place. Slices are kept. Finalization is one-way and
-        must follow :meth:`resolve`; calling it again is a no-op.
-
-        Args:
-            device: Device on which to allocate the index tensors.
-        """
-        for name in ("joint_ids", "fixed_tendon_ids", "body_ids", "object_collection_ids"):
-            indices = getattr(self, name)
-            if not isinstance(indices, (slice, torch.Tensor)):
-                setattr(self, name, torch.tensor(indices, dtype=torch.long, device=device))
 
     def _resolve_joint_names(self, scene: InteractiveScene):
         # convert joint names to indices based on regex
@@ -252,15 +229,12 @@ class SceneEntityCfg:
         if self.body_names is not None or self.body_ids != slice(None):
             entity: RigidObject = scene[self.name]
             # -- if both are not their default values, check if they are valid
-            # use find_sensors/num_sensors for ContactSensor, find_bodies/num_bodies for others
-            _find_fn = entity.find_sensors if hasattr(entity, "find_sensors") else entity.find_bodies
-            _num_bodies = entity.num_sensors if hasattr(entity, "num_sensors") else entity.num_bodies
             if self.body_names is not None and self.body_ids != slice(None):
                 if isinstance(self.body_names, str):
                     self.body_names = [self.body_names]
                 if isinstance(self.body_ids, int):
                     self.body_ids = [self.body_ids]
-                body_ids, _ = _find_fn(self.body_names, preserve_order=self.preserve_order)
+                body_ids, _ = entity.find_bodies(self.body_names, preserve_order=self.preserve_order)
                 body_names = [entity.body_names[i] for i in self.body_ids]
                 if body_ids != self.body_ids or body_names != self.body_names:
                     raise ValueError(
@@ -273,10 +247,10 @@ class SceneEntityCfg:
             elif self.body_names is not None:
                 if isinstance(self.body_names, str):
                     self.body_names = [self.body_names]
-                self.body_ids, _ = _find_fn(self.body_names, preserve_order=self.preserve_order)
+                self.body_ids, _ = entity.find_bodies(self.body_names, preserve_order=self.preserve_order)
                 # performance optimization (slice offers faster indexing than list of indices)
                 # only all bodies in the entity order are selected
-                if len(self.body_ids) == _num_bodies and self.body_names == entity.body_names:
+                if len(self.body_ids) == entity.num_bodies and self.body_names == entity.body_names:
                     self.body_ids = slice(None)
             # -- from body indices to body names
             elif self.body_ids != slice(None):

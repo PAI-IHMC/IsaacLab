@@ -206,13 +206,13 @@ The `ThrustAction` term provides flexible preprocessing to support all modes thr
 
 </details>
 
-### Standalone Example
+### Demo Script
 
-A complete demonstration of multirotor simulation is available:
+A complete demonstration of quadcopter simulation is available:
 
 ```bash
-# Run the multirotor example
-uv run --extra isaacsim isaaclab example arl-robot-1
+# Run quadcopter demo
+./isaaclab.sh -p scripts/demos/quadcopter.py
 ```
 
 ## TacSL Tactile Sensor (Detailed)
@@ -256,7 +256,7 @@ The TacSL tactile sensor system includes:
 
 ```python
 import isaaclab.sim as sim_utils
-from isaaclab.sensors import CameraCfg
+from isaaclab.sensors import TiledCameraCfg
 
 from isaaclab_contrib.sensors.tacsl_sensor import VisuoTactileSensorCfg
 
@@ -287,8 +287,8 @@ tactile_sensor_cfg = VisuoTactileSensorCfg(
     friction_coefficient=2.0,        # Surface friction
     tangential_stiffness=0.1,        # Tangential stiffness
 
-    # Camera configuration (dimensions must match GELSIGHT_R15_CFG which provides the render_cfg)
-    camera_cfg=CameraCfg(
+    # Camera configuration (must match render_cfg dimensions)
+    camera_cfg=TiledCameraCfg(
         prim_path="{ENV_REGEX_NS}/Robot/elastomer_tip/cam",
         height=GELSIGHT_R15_CFG.image_height,
         width=GELSIGHT_R15_CFG.image_width,
@@ -302,7 +302,6 @@ tactile_sensor_cfg = VisuoTactileSensorCfg(
 
 ```python
 from isaaclab.assets import ArticulationCfg
-from isaaclab_physx.sim.schemas import PhysxArticulationCfg, PhysxCollisionCfg, PhysxRigidBodyCfg
 
 robot_cfg = ArticulationCfg(
     prim_path="{ENV_REGEX_NS}/Robot",
@@ -314,16 +313,16 @@ robot_cfg = ArticulationCfg(
         compliant_contact_damping=10.0,       # Elastomer damping
         physics_material_prim_path="elastomer",  # Prim with compliant contact
 
-        rigid_props=PhysxRigidBodyCfg(
+        rigid_props=sim_utils.RigidBodyPropertiesCfg(
             disable_gravity=True,
             max_depenetration_velocity=5.0,
         ),
-        articulation_props=PhysxArticulationCfg(
+        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
             enabled_self_collisions=False,
             solver_position_iteration_count=12,
             solver_velocity_iteration_count=1,
         ),
-        collision_props=PhysxCollisionCfg(
+        collision_props=sim_utils.CollisionPropertiesCfg(
             contact_offset=0.001,
             rest_offset=-0.0005,
         ),
@@ -425,11 +424,9 @@ The RGB tactile rendering follows this pipeline:
 For accurate tactile sensing, configure PhysX parameters:
 
 ```python
-from isaaclab_physx.physics import PhysxCfg
-
 sim_cfg = sim_utils.SimulationCfg(
     dt=0.005,  # 5ms timestep for stable contact simulation
-    physics=PhysxCfg(
+    physx=sim_utils.PhysxCfg(
         gpu_collision_stack_size=2**30,  # Increase for contact-rich scenarios
     ),
 )
@@ -451,20 +448,20 @@ solver_velocity_iteration_count=1
 
 </details>
 
-### Standalone Example
+### Demo Script
 
 A complete demonstration of TacSL tactile sensor is available:
 
 ```bash
-# Run the TacSL tactile sensor example with RGB and force field sensing
-uv run --extra isaacsim isaaclab example tactile-sensor \
+# Run TacSL tactile sensor demo with RGB and force field sensing
+./isaaclab.sh -p scripts/demos/sensors/tacsl_sensor.py \
     --use_tactile_rgb \
     --use_tactile_ff \
     --num_envs 16 \
     --contact_object_type nut
 
 # Save visualization data
-uv run --extra isaacsim isaaclab example tactile-sensor \
+./isaaclab.sh -p scripts/demos/sensors/tacsl_sensor.py \
     --use_tactile_rgb \
     --use_tactile_ff \
     --save_viz \
@@ -481,7 +478,7 @@ The extension includes comprehensive unit tests for all contributed components:
 # Test multirotor components
 python -m pytest source/isaaclab_contrib/test/assets/test_multirotor.py
 python -m pytest source/isaaclab_contrib/test/actuators/test_thruster.py
-python -m pytest source/isaaclab_contrib/test/assets/test_drone_geometric_controllers.py
+
 # Run all contrib tests
 python -m pytest source/isaaclab_contrib/test/
 ```

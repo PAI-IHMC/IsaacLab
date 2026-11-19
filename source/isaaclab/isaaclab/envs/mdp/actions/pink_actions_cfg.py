@@ -4,14 +4,12 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 from dataclasses import MISSING
-from typing import TYPE_CHECKING
 
 from isaaclab.controllers.pink_ik import PinkIKControllerCfg
-from isaaclab.managers.action_manager import ActionTermCfg
+from isaaclab.managers.action_manager import ActionTerm, ActionTermCfg
 from isaaclab.utils import configclass
 
-if TYPE_CHECKING:
-    from .pink_task_space_actions import PinkInverseKinematicsAction
+from . import pink_task_space_actions
 
 
 @configclass
@@ -22,7 +20,7 @@ class PinkInverseKinematicsActionCfg(ActionTermCfg):
     which is a inverse kinematics framework.
     """
 
-    class_type: type["PinkInverseKinematicsAction"] | str = "{DIR}.pink_task_space_actions:PinkInverseKinematicsAction"
+    class_type: type[ActionTerm] = pink_task_space_actions.PinkInverseKinematicsAction
     """Specifies the action term class type for Pink inverse kinematics action."""
 
     pink_controlled_joint_names: list[str] = MISSING

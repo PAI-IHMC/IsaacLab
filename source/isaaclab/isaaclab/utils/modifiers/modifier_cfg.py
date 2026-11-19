@@ -3,38 +3,35 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import MISSING
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import torch
 
-from .. import configclass
+from isaaclab.utils import configclass
 
-if TYPE_CHECKING:
-    from .modifier import DigitalFilter, Integrator
-    from .modifier_base import ModifierBase
+from . import modifier
 
 
 @configclass
 class ModifierCfg:
-    """Configuration parameters for function and class modifiers."""
+    """Configuration parameters modifiers"""
 
-    func: Callable[..., torch.Tensor] | type[ModifierBase] | str = MISSING
-    """Function or :class:`ModifierBase` class used by the modifier.
+    func: Callable[..., torch.Tensor] = MISSING
+    """Function or callable class used by modifier.
 
-    Functions must take a tensor as their first argument. Classes must inherit from :class:`ModifierBase`; the
-    observation manager constructs them with the configuration, observation dimensions, and device.
+    The function must take a torch tensor as the first argument. The remaining arguments are specified
+    in the :attr:`params` attribute.
+
+    It also supports `callable classes <https://docs.python.org/3/reference/datamodel.html#object.__call__>`_,
+    i.e. classes that implement the ``__call__()`` method. In this case, the class should inherit from the
+    :class:`ModifierBase` class and implement the required methods.
     """
 
-    params: dict[str, Any] = {}
-    """Parameters used by the modifier. Defaults to an empty dictionary.
-
-    Function modifiers receive them as keyword arguments on each call. Class modifiers access them through this
-    configuration during construction; they are not forwarded to the constructed instance.
-    """
+    params: dict[str, Any] = dict()
+    """The parameters to be passed to the function or callable class as keyword arguments. Defaults to
+    an empty dictionary."""
 
 
 @configclass
@@ -44,7 +41,7 @@ class DigitalFilterCfg(ModifierCfg):
     For more information, please check the :class:`DigitalFilter` class.
     """
 
-    func: type[DigitalFilter] | str = "{DIR}.modifier:DigitalFilter"
+    func: type[modifier.DigitalFilter] = modifier.DigitalFilter
     """The digital filter function to be called for applying the filter."""
 
     A: list[float] = MISSING
@@ -75,7 +72,7 @@ class IntegratorCfg(ModifierCfg):
     For more information, please check the :class:`Integrator` class.
     """
 
-    func: type[Integrator] | str = "{DIR}.modifier:Integrator"
+    func: type[modifier.Integrator] = modifier.Integrator
     """The integrator function to be called for applying the integrator."""
 
     dt: float = MISSING

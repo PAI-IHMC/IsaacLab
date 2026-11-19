@@ -3,28 +3,12 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Vectorized environment wrapper for the RSL-RL library."""
-
-from __future__ import annotations
-
-import contextlib
-from typing import TYPE_CHECKING
-
 import gymnasium as gym
 import torch
 from rsl_rl.env import VecEnv
 from tensordict import TensorDict
 
-from ..utils.env_types import check_env_type
-
-if TYPE_CHECKING:
-    from isaaclab.envs import (
-        DirectRLEnv,
-        ManagerBasedRLEnv,
-    )
-
-    with contextlib.suppress(ImportError):
-        from isaaclab_experimental.envs import DirectRLEnvWarp, ManagerBasedRLEnvWarp
+from isaaclab.envs import DirectRLEnv, ManagerBasedRLEnv
 
 
 class RslRlVecEnvWrapper(VecEnv):
@@ -52,7 +36,15 @@ class RslRlVecEnvWrapper(VecEnv):
         Raises:
             ValueError: When the environment is not an instance of :class:`ManagerBasedRLEnv` or :class:`DirectRLEnv`.
         """
-        check_env_type(env, allow_manager_based_env=True)
+
+        # check that input is valid
+        if not isinstance(env.unwrapped, ManagerBasedRLEnv) and not isinstance(env.unwrapped, DirectRLEnv):
+            raise ValueError(
+                "The environment must be inherited from ManagerBasedRLEnv or DirectRLEnv. Environment type:"
+                f" {type(env)}"
+            )
+
+        # initialize the wrapper
         self.env = env
         self.clip_actions = clip_actions
 
@@ -111,7 +103,7 @@ class RslRlVecEnvWrapper(VecEnv):
         return cls.__name__
 
     @property
-    def unwrapped(self) -> ManagerBasedRLEnv | DirectRLEnv | DirectRLEnvWarp | ManagerBasedRLEnvWarp:
+    def unwrapped(self) -> ManagerBasedRLEnv | DirectRLEnv:
         """Returns the base environment of the wrapper.
 
         This will be the bare :class:`gymnasium.Env` environment, underneath all layers of wrappers.
@@ -150,7 +142,11 @@ class RslRlVecEnvWrapper(VecEnv):
 
     def get_observations(self) -> TensorDict:
         """Returns the current observations of the environment."""
-        return TensorDict(self.unwrapped.obs_buf, batch_size=[self.num_envs])
+        if hasattr(self.unwrapped, "observation_manager"):
+            obs_dict = self.unwrapped.observation_manager.compute()
+        else:
+            obs_dict = self.unwrapped._get_observations()
+        return TensorDict(obs_dict, batch_size=[self.num_envs])
 
     def step(self, actions: torch.Tensor) -> tuple[TensorDict, torch.Tensor, torch.Tensor, dict]:
         # clip actions

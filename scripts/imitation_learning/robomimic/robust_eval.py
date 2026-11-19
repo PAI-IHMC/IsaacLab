@@ -24,10 +24,13 @@ Args:
     disable_fabric: Whether to disable fabric and use USD I/O operations.
 """
 
+"""Launch Isaac Sim Simulator first."""
+
 import argparse
 
-from isaaclab.app import add_launcher_args, launch_simulation
+from isaaclab.app import AppLauncher
 
+# add argparse arguments
 parser = argparse.ArgumentParser(description="Evaluate robomimic policy for Isaac Lab environment.")
 parser.add_argument(
     "--disable_fabric", action="store_true", default=False, help="Disable fabric and use USD I/O operations."
@@ -54,13 +57,24 @@ parser.add_argument(
 parser.add_argument(
     "--norm_factor_max", type=float, default=None, help="Optional: maximum value of the normalization factor."
 )
+parser.add_argument("--enable_pinocchio", default=False, action="store_true", help="Enable Pinocchio.")
 
-add_launcher_args(parser)
-# parse the arguments, forwarding unrecognized ones as Hydra-style task config overrides.
-# ``overrides`` must be passed explicitly to the config parser: this script keeps its own flags in
-# ``sys.argv`` rather than stripping them, so letting Hydra fall back to reading ``sys.argv`` makes it
-# reject them.
-args_cli, hydra_overrides = parser.parse_known_args()
+# append AppLauncher cli args
+AppLauncher.add_app_launcher_args(parser)
+# parse the arguments
+args_cli = parser.parse_args()
+
+if args_cli.enable_pinocchio:
+    # Import pinocchio before AppLauncher to force the use of the version installed
+    # by IsaacLab and not the one installed by Isaac Sim.
+    # pinocchio is required by the Pink IK controllers and the GR1T2 retargeter
+    import pinocchio  # noqa: F401
+
+# launch omniverse app
+app_launcher = AppLauncher(args_cli)
+simulation_app = app_launcher.app
+
+"""Rest everything follows."""
 
 import copy
 import os
@@ -71,8 +85,6 @@ import gymnasium as gym
 import robomimic.utils.file_utils as FileUtils
 import robomimic.utils.torch_utils as TorchUtils
 import torch
-
-from isaaclab.envs.utils._manual_success import _prepare_success_term
 
 from isaaclab_tasks.utils import parse_env_cfg
 
@@ -208,13 +220,7 @@ def evaluate_model(
 def main() -> None:
     """Run evaluation of trained policies from robomimic with Isaac Lab environment."""
     # Parse configuration
-    env_cfg = parse_env_cfg(
-        args_cli.task,
-        device=args_cli.device,
-        num_envs=1,
-        use_fabric=not args_cli.disable_fabric,
-        overrides=hydra_overrides,
-    )
+    env_cfg = parse_env_cfg(args_cli.task, device=args_cli.device, num_envs=1, use_fabric=not args_cli.disable_fabric)
 
     # Set observations to dictionary mode for Robomimic
     env_cfg.observations.policy.concatenate_terms = False
@@ -226,19 +232,12 @@ def main() -> None:
     env_cfg.recorders = None
 
     # Extract success checking function
-    success_term = _prepare_success_term(env_cfg)
+    success_term = env_cfg.terminations.success
+    env_cfg.terminations.success = None
 
     # Set evaluation settings
     env_cfg.eval_mode = True
 
-    # Launch the runtime the task needs. Camera rendering is only enabled for tasks that declare Kit
-    # camera sensors, so policies trained on low-dimensional observations do not pay for the RTX renderer.
-    with launch_simulation(env_cfg, args_cli):
-        evaluate_models(env_cfg, success_term)
-
-
-def evaluate_models(env_cfg, success_term) -> None:
-    """Create the environment and evaluate every checkpoint under each evaluation setting."""
     # Create environment
     env = gym.make(args_cli.task, cfg=env_cfg).unwrapped
 
@@ -330,4 +329,7 @@ def evaluate_models(env_cfg, success_term) -> None:
 
 
 if __name__ == "__main__":
+    # run the main function
     main()
+    # close sim app
+    simulation_app.close()

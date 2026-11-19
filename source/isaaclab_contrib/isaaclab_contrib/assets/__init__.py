@@ -11,6 +11,4 @@ Isaac Lab framework yet, but are planned to be added in the future. They are
 contributed by the community to extend the capabilities of Isaac Lab.
 """
 
-from isaaclab.utils.module import lazy_export
-
-lazy_export()
+from .multirotor import Multirotor, MultirotorCfg, MultirotorData

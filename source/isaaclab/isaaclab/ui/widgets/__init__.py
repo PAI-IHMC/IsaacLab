@@ -3,6 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-from ...utils.module import lazy_export
-
-lazy_export()
+from .image_plot import ImagePlot
+from .line_plot import LiveLinePlot
+from .manager_live_visualizer import ManagerLiveVisualizer
+from .ui_visualizer_base import UiVisualizerBase

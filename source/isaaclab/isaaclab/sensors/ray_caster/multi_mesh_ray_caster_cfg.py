@@ -7,13 +7,11 @@
 """Configuration for the ray-cast sensor."""
 
 from dataclasses import MISSING
-from typing import TYPE_CHECKING
 
-from ...utils import configclass
+from isaaclab.utils import configclass
+
+from .multi_mesh_ray_caster import MultiMeshRayCaster
 from .ray_caster_cfg import RayCasterCfg
-
-if TYPE_CHECKING:
-    from .multi_mesh_ray_caster import MultiMeshRayCaster
 
 
 @configclass
@@ -51,7 +49,7 @@ class MultiMeshRayCasterCfg(RayCasterCfg):
             Not tracking the mesh transformations is recommended when the meshes are static to increase performance.
         """
 
-    class_type: type["MultiMeshRayCaster"] | str = "{DIR}.multi_mesh_ray_caster:MultiMeshRayCaster"
+    class_type: type = MultiMeshRayCaster
 
     mesh_prim_paths: list[str | RaycastTargetCfg] = MISSING
     """The list of mesh primitive paths to ray cast against.

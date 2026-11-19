@@ -3,18 +3,8 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""OpenXR teleoperation devices (legacy).
+"""Keyboard device for SE(2) and SE(3) control."""
 
-.. deprecated::
-    This package has moved to :mod:`isaaclab_teleop.deprecated.openxr`.
-    Please migrate to :mod:`isaaclab_teleop` which provides the
-    :class:`~isaaclab_teleop.IsaacTeleopDevice` as a replacement.
-
-    Imports from this package will continue to work for backwards
-    compatibility.  Individual class constructors emit
-    :class:`DeprecationWarning` at instantiation time.
-"""
-
-from ...utils.module import lazy_export
-
-lazy_export()
+from .manus_vive import ManusVive, ManusViveCfg
+from .openxr_device import OpenXRDevice, OpenXRDeviceCfg
+from .xr_cfg import XrAnchorRotationMode, XrCfg, remove_camera_configs

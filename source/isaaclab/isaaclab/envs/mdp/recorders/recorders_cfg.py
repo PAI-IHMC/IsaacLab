@@ -2,19 +2,10 @@
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
-from typing import TYPE_CHECKING
-
-from isaaclab.managers.recorder_manager import RecorderManagerBaseCfg, RecorderTermCfg
+from isaaclab.managers.recorder_manager import RecorderManagerBaseCfg, RecorderTerm, RecorderTermCfg
 from isaaclab.utils import configclass
 
-if TYPE_CHECKING:
-    from .recorders import (
-        InitialStateRecorder,
-        PostStepProcessedActionsRecorder,
-        PostStepStatesRecorder,
-        PreStepActionsRecorder,
-        PreStepFlatPolicyObservationsRecorder,
-    )
+from . import recorders
 
 ##
 # State recorders.
@@ -25,37 +16,35 @@ if TYPE_CHECKING:
 class InitialStateRecorderCfg(RecorderTermCfg):
     """Configuration for the initial state recorder term."""
 
-    class_type: type["InitialStateRecorder"] | str = "{DIR}.recorders:InitialStateRecorder"
+    class_type: type[RecorderTerm] = recorders.InitialStateRecorder
 
 
 @configclass
 class PostStepStatesRecorderCfg(RecorderTermCfg):
     """Configuration for the step state recorder term."""
 
-    class_type: type["PostStepStatesRecorder"] | str = "{DIR}.recorders:PostStepStatesRecorder"
+    class_type: type[RecorderTerm] = recorders.PostStepStatesRecorder
 
 
 @configclass
 class PreStepActionsRecorderCfg(RecorderTermCfg):
     """Configuration for the step action recorder term."""
 
-    class_type: type["PreStepActionsRecorder"] | str = "{DIR}.recorders:PreStepActionsRecorder"
+    class_type: type[RecorderTerm] = recorders.PreStepActionsRecorder
 
 
 @configclass
 class PreStepFlatPolicyObservationsRecorderCfg(RecorderTermCfg):
     """Configuration for the step policy observation recorder term."""
 
-    class_type: type["PreStepFlatPolicyObservationsRecorder"] | str = (
-        "{DIR}.recorders:PreStepFlatPolicyObservationsRecorder"
-    )
+    class_type: type[RecorderTerm] = recorders.PreStepFlatPolicyObservationsRecorder
 
 
 @configclass
 class PostStepProcessedActionsRecorderCfg(RecorderTermCfg):
     """Configuration for the post step processed actions recorder term."""
 
-    class_type: type["PostStepProcessedActionsRecorder"] | str = "{DIR}.recorders:PostStepProcessedActionsRecorder"
+    class_type: type[RecorderTerm] = recorders.PostStepProcessedActionsRecorder
 
 
 ##

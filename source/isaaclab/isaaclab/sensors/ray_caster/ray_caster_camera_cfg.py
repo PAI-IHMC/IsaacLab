@@ -6,14 +6,13 @@
 """Configuration for the ray-cast camera sensor."""
 
 from dataclasses import MISSING
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
-from ...utils import configclass
+from isaaclab.utils import configclass
+
 from .patterns import PinholeCameraPatternCfg
+from .ray_caster_camera import RayCasterCamera
 from .ray_caster_cfg import RayCasterCfg
-
-if TYPE_CHECKING:
-    from .ray_caster_camera import RayCasterCamera
 
 
 @configclass
@@ -27,8 +26,8 @@ class RayCasterCameraCfg(RayCasterCfg):
         pos: tuple[float, float, float] = (0.0, 0.0, 0.0)
         """Translation w.r.t. the parent frame. Defaults to (0.0, 0.0, 0.0)."""
 
-        rot: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 1.0)
-        """Quaternion rotation (x, y, z, w) w.r.t. the parent frame. Defaults to (0.0, 0.0, 0.0, 1.0)."""
+        rot: tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0)
+        """Quaternion rotation (w, x, y, z) w.r.t. the parent frame. Defaults to (1.0, 0.0, 0.0, 0.0)."""
 
         convention: Literal["opengl", "ros", "world"] = "ros"
         """The convention in which the frame offset is applied. Defaults to "ros".
@@ -40,7 +39,7 @@ class RayCasterCameraCfg(RayCasterCfg):
 
         """
 
-    class_type: type["RayCasterCamera"] | str = "{DIR}.ray_caster_camera:RayCasterCamera"
+    class_type: type = RayCasterCamera
 
     offset: OffsetCfg = OffsetCfg()
     """The offset pose of the sensor's frame from the sensor's parent frame. Defaults to identity."""
@@ -53,8 +52,8 @@ class RayCasterCameraCfg(RayCasterCfg):
 
     - ``"max"``: Values are clipped to the maximum value.
     - ``"zero"``: Values are clipped to zero.
-    - ``"none"``: No clipping is applied. Values will be returned as ``inf`` for missed rays in both
-      ``distance_to_camera`` and ``distance_to_image_plane`` data types.
+    - ``"none``: No clipping is applied. Values will be returned as ``inf`` for ``distance_to_camera`` and ``nan``
+      for ``distance_to_image_plane`` data type.
     """
 
     pattern_cfg: PinholeCameraPatternCfg = MISSING

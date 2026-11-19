@@ -7,16 +7,16 @@
 
 .. code-block:: bash
 
-    uv run python tools/run_all_tests.py
+    ./isaaclab.sh -p tools/run_all_tests.py
 
     # for dry run
-    uv run python tools/run_all_tests.py --discover_only
+    ./isaaclab.sh -p tools/run_all_tests.py --discover_only
 
     # for quiet run
-    uv run python tools/run_all_tests.py --quiet
+    ./isaaclab.sh -p tools/run_all_tests.py --quiet
 
     # for increasing timeout (default is 600 seconds)
-    uv run python tools/run_all_tests.py --timeout 1000
+    ./isaaclab.sh -p tools/run_all_tests.py --timeout 1000
 
 """
 
@@ -339,7 +339,7 @@ def warm_start_app():
         [
             sys.executable,
             "-c",
-            "from isaaclab.test.utils import launch_test_simulation; launch_test_simulation()",
+            "from isaaclab.app import AppLauncher; app_launcher = AppLauncher(headless=True); app_launcher.app.close()",
         ],
         capture_output=True,
     )
@@ -355,7 +355,10 @@ def warm_start_app():
         [
             sys.executable,
             "-c",
-            ("from isaaclab.test.utils import launch_test_simulation; launch_test_simulation(enable_cameras=True)"),
+            (
+                "from isaaclab.app import AppLauncher; app_launcher = AppLauncher(headless=True,"
+                " enable_cameras=True); app_launcher.app.close()"
+            ),
         ],
         capture_output=True,
     )

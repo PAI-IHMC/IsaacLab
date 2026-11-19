@@ -6,51 +6,38 @@
     "configurations": [
         {
             "name": "Python: Current File",
-            "type": "debugpy",
+            "type": "python",
             "request": "launch",
-            // Use the interpreter recorded by `isaaclab --editor`; VS Code skips wrapper scripts such as python.sh
-            "python": "${config:python.defaultInterpreterPath}",
             "program": "${file}",
             "console": "integratedTerminal"
         },
-        // Attach to listening debugpy
-        // Usage (VSCode but should be similar for other IDEs):
-        // 1. Set your breakpoints
-        // 2. Run your code under debugpy like so:
-        //    uv run python -m debugpy --listen 3000 --wait-for-client -c "from isaaclab.cli import cli; cli()" [cli_args]
-        // 3. Select this "Python: Debugger Attach" configuration and press green play button or F5
         {
-            "name": "Python: Debugger Attach",
-            "type": "debugpy",
+            "name": "Python: Attach (windows-x86_64/linux-x86_64)",
+            "type": "python",
             "request": "attach",
-            "connect": {
-                "host": "localhost",
-                "port": 3000
-            }
+            "port": 3000,
+            "host": "localhost"
         },
         {
             "name": "Python: Train Environment",
-            "type": "debugpy",
+            "type": "python",
             "request": "launch",
-            "python": "${config:python.defaultInterpreterPath}",
-            "module": "isaaclab",
-            "args": ["train", "--rl_library", "rsl_rl", "--task", "Isaac-Reach-Franka"],
+            "args" : ["--task", "Isaac-Reach-Franka-v0", "--headless"],
+            "program": "${workspaceFolder}/scripts/reinforcement_learning/rsl_rl/train.py",
             "console": "integratedTerminal"
         },
         {
             "name": "Python: Play Environment",
-            "type": "debugpy",
+            "type": "python",
             "request": "launch",
-            "python": "${config:python.defaultInterpreterPath}",
-            "module": "isaaclab",
-            "args": ["play", "--rl_library", "rsl_rl", "--task", "Isaac-Reach-Franka", "--num_envs", "32"],
+            "args" : ["--task", "Isaac-Reach-Franka-v0", "--num_envs", "32"],
+            "program": "${workspaceFolder}/scripts/reinforcement_learning/rsl_rl/play.py",
             "console": "integratedTerminal"
         },
         {
             "name": "Python: SinglePytest",
-            "type": "debugpy",
+            "type": "python",
             "request": "launch",
-            "python": "${config:python.defaultInterpreterPath}",
             "module": "pytest",
             "args": [
               "${file}"
@@ -59,9 +46,8 @@
         },
         {
             "name": "Python: ALL Pytest",
-            "type": "debugpy",
+            "type": "python",
             "request": "launch",
-            "python": "${config:python.defaultInterpreterPath}",
             "module": "pytest",
             "args": ["source/isaaclab/test"],
             "console": "integratedTerminal",

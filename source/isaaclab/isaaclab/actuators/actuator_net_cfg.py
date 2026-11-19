@@ -5,20 +5,19 @@
 
 from collections.abc import Iterable
 from dataclasses import MISSING
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
-from ..utils import configclass
+from isaaclab.utils import configclass
+
+from . import actuator_net
 from .actuator_pd_cfg import DCMotorCfg
-
-if TYPE_CHECKING:
-    from .actuator_net import ActuatorNetLSTM, ActuatorNetMLP
 
 
 @configclass
 class ActuatorNetLSTMCfg(DCMotorCfg):
     """Configuration for LSTM-based actuator model."""
 
-    class_type: type["ActuatorNetLSTM"] | str = "{DIR}.actuator_net:ActuatorNetLSTM"
+    class_type: type = actuator_net.ActuatorNetLSTM
     # we don't use stiffness and damping for actuator net
     stiffness = None
     damping = None
@@ -31,7 +30,7 @@ class ActuatorNetLSTMCfg(DCMotorCfg):
 class ActuatorNetMLPCfg(DCMotorCfg):
     """Configuration for MLP-based actuator model."""
 
-    class_type: type["ActuatorNetMLP"] | str = "{DIR}.actuator_net:ActuatorNetMLP"
+    class_type: type = actuator_net.ActuatorNetMLP
     # we don't use stiffness and damping for actuator net
 
     stiffness = None

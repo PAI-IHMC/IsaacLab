@@ -25,6 +25,5 @@ actions to the scene. All these are handled by different "managers" in the frame
 :mod:`isaaclab.managers` sub-package for more details.
 """
 
-from ..utils.module import lazy_export
-
-lazy_export()
+from .interactive_scene import InteractiveScene
+from .interactive_scene_cfg import InteractiveSceneCfg

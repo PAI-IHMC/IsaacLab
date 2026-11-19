@@ -53,6 +53,13 @@ Usage with a class modifier:
 
 """
 
-from ..module import lazy_export
+# isort: off
+from .modifier_cfg import ModifierCfg
+from .modifier_base import ModifierBase
+from .modifier import DigitalFilter
+from .modifier_cfg import DigitalFilterCfg
+from .modifier import Integrator
+from .modifier_cfg import IntegratorCfg
 
-lazy_export()
+# isort: on
+from .modifier import bias, clip, scale

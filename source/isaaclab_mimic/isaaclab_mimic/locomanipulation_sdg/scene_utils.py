@@ -7,11 +7,8 @@ import random
 
 import numpy as np
 import torch
-import warp as wp
 
 import isaaclab.utils.math as math_utils
-from isaaclab.assets import Asset, AssetBase
-from isaaclab.sim.views import UsdFrameView
 
 from .occupancy_map_utils import OccupancyMap, intersect_occupancy_maps
 from .transform_utils import transform_mul
@@ -86,8 +83,7 @@ class SceneBody(HasPose):
 
     def get_pose(self):
         """Get the 3D pose of the entity."""
-        body_link_state_w = self.scene[self.entity_name].data.body_link_state_w.torch
-        pose = body_link_state_w[
+        pose = self.scene[self.entity_name].data.body_link_state_w[
             :,
             self.scene[self.entity_name].data.body_names.index(self.body_name),
             :7,
@@ -101,58 +97,20 @@ class SceneAsset(HasPose):
     def __init__(self, scene, entity_name: str):
         self.scene = scene
         self.entity_name = entity_name
-        self._xform_view: UsdFrameView | None = None
-        self._cached_pose: torch.Tensor | None = None
-
-    def _get_xform_view(self) -> UsdFrameView:
-        """Return the USD transform view for this asset, building it on demand.
-
-        Static scene assets carry no runtime view, so the pose view is created lazily here and cached on this
-        wrapper. A cached view created before environment cloning is rebuilt once the
-        cloned prims exist.
-        """
-        if self._xform_view is None or self._xform_view.count == 0:
-            if self._xform_view is not None:
-                self._xform_view.close()
-            self._cached_pose = None
-            entity = self.scene[self.entity_name]
-            prim_path = (
-                entity.cfg.prim_path
-                if isinstance(entity, Asset) and not isinstance(entity, AssetBase)
-                else getattr(entity, "_usd_view", entity)._prim_path
-            )
-            self._xform_view = UsdFrameView(prim_path, device=self.scene.device)
-        return self._xform_view
 
     def get_pose(self):
         """Get the 3D pose of the entity."""
-        if self._cached_pose is not None:
-            return self._cached_pose.clone()
-        xform_prim = self._get_xform_view()
-        pos_w, quat_w = xform_prim.get_world_poses()
-        position = pos_w.torch
-        orientation = quat_w.torch
+        xform_prim = self.scene[self.entity_name]
+        position, orientation = xform_prim.get_world_poses()
         pose = torch.cat([position, orientation], dim=-1)
-        self._cached_pose = pose.detach().clone()
-        return self._cached_pose.clone()
+        return pose
 
     def set_pose(self, pose: torch.Tensor):
         """Set the 3D pose of the entity."""
-        xform_prim = self._get_xform_view()
+        xform_prim = self.scene[self.entity_name]
         position = pose[..., :3]
         orientation = pose[..., 3:]
-        with xform_prim.xform_world_space_writer() as writer:
-            writer.set_poses(wp.from_torch(position.contiguous()), wp.from_torch(orientation.contiguous()), None)
-        self._cached_pose = pose.detach().clone()
-        entity = self.scene[self.entity_name]
-        if isinstance(entity, Asset) and not isinstance(entity, AssetBase):
-            # Static assets have no runtime data object, so keep their config pose aligned.
-            pose_cfg = pose[0] if pose.ndim > 1 else pose
-            env_origin = self.scene.env_origins[0].to(pose_cfg.device)
-            pos = (pose_cfg[:3] - env_origin).detach().cpu().tolist()
-            rot = pose_cfg[3:].detach().cpu().tolist()
-            entity.cfg.init_state.pos = tuple(float(value) for value in pos)
-            entity.cfg.init_state.rot = tuple(float(value) for value in rot)
+        xform_prim.set_world_poses(position, orientation, None)
 
 
 class RelativePose(HasPose):
@@ -166,9 +124,8 @@ class RelativePose(HasPose):
         """Get the 3D pose of the entity."""
 
         parent_pose = self.parent.get_pose()
-        relative_pose = self.relative_pose.to(parent_pose.device)
 
-        pose = transform_mul(parent_pose, relative_pose)
+        pose = transform_mul(parent_pose, self.relative_pose)
 
         return pose
 
@@ -176,53 +133,23 @@ class RelativePose(HasPose):
 class SceneFixture(SceneAsset, HasOccupancyMap):
     """A helper class for working with assets in a scene that have an associated occupancy map."""
 
-    def __init__(self, scene, entity_name: str, local_occupancy_map: OccupancyMap):
-        """Initialize a SceneFixture from a local occupancy map
-
-        Args:
-            scene: The scene
-            entity_name: The name of the entity
-            local_occupancy_map: The local occupancy map
-        """
+    def __init__(
+        self, scene, entity_name: str, occupancy_map_boundary: np.ndarray, occupancy_map_resolution: float = 0.05
+    ):
         SceneAsset.__init__(self, scene, entity_name)
-        self.local_occupancy_map = local_occupancy_map
-
-    @classmethod
-    def from_boundary(
-        cls, scene, entity_name: str, occupancy_map_boundary: np.ndarray, occupancy_map_resolution: float = 0.05
-    ) -> "SceneFixture":
-        """Create a SceneFixture from a known boundary/resolution pair
-
-        Args:
-            scene: The scene
-            entity_name: The name of the entity
-            occupancy_map_boundary: The boundary of the occupancy map
-            occupancy_map_resolution: The resolution of the occupancy map
-
-        Returns:
-            SceneFixture: The SceneFixture
-        """
-        occupancy_map = OccupancyMap.from_occupancy_boundary(
-            boundary=occupancy_map_boundary, resolution=occupancy_map_resolution
-        )
-        return cls(scene, entity_name, occupancy_map)
+        self.occupancy_map_boundary = occupancy_map_boundary
+        self.occupancy_map_resolution = occupancy_map_resolution
 
     def get_occupancy_map(self):
-        """Get the occupancy map of the SceneFixture
-
-        Returns:
-            OccupancyMap: The occupancy map
-        """
-        if self.local_occupancy_map is None:
-            raise RuntimeError("SceneFixture requires an occupancy map before querying it.")
+        local_occupancy_map = OccupancyMap.from_occupancy_boundary(
+            boundary=self.occupancy_map_boundary, resolution=self.occupancy_map_resolution
+        )
 
         transform = self.get_transform_2d().detach().cpu().numpy()
-        # get_world_poses() may return a batched (num_envs, 3, 3) or empty (0, 3, 3) tensor.
-        # For a fixed background asset placed at the world origin, fall back to identity when empty.
-        if transform.ndim == 3:
-            transform = transform[0] if transform.shape[0] > 0 else np.eye(3)
 
-        return self.local_occupancy_map.transformed(transform)
+        occupancy_map = local_occupancy_map.transformed(transform)
+
+        return occupancy_map
 
 
 def place_randomly(

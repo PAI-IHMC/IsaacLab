@@ -7,6 +7,5 @@
 Submodules for files IO operations.
 """
 
-from ..module import lazy_export
-
-lazy_export()
+from .torchscript import load_torchscript_model
+from .yaml import dump_yaml, load_yaml

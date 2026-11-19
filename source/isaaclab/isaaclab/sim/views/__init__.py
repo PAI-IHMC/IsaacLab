@@ -5,6 +5,4 @@
 
 """Views for manipulating USD prims."""
 
-from ...utils.module import lazy_export
-
-lazy_export()
+from .xform_prim_view import XformPrimView

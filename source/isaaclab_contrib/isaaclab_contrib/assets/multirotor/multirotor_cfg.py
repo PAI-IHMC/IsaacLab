@@ -5,15 +5,13 @@
 
 from collections.abc import Sequence
 from dataclasses import MISSING
-from typing import TYPE_CHECKING
 
 from isaaclab.assets.articulation import ArticulationCfg
 from isaaclab.utils import configclass
 
 from isaaclab_contrib.actuators import ThrusterCfg
 
-if TYPE_CHECKING:
-    from .multirotor import Multirotor
+from .multirotor import Multirotor
 
 
 @configclass
@@ -47,7 +45,7 @@ class MultirotorCfg(ArticulationCfg):
 
             # Quadcopter configuration
             quadcopter_cfg = MultirotorCfg(
-                prim_path="{ENV_REGEX_NS}/Quadcopter",
+                prim_path="/World/envs/env_.*/Quadcopter",
                 spawn=sim_utils.UsdFileCfg(
                     usd_path="path/to/quadcopter.usd",
                 ),
@@ -80,7 +78,7 @@ class MultirotorCfg(ArticulationCfg):
         - :class:`Multirotor`: Multirotor asset class
     """
 
-    class_type: type["Multirotor"] | str = "{DIR}.multirotor:Multirotor"
+    class_type: type = Multirotor
 
     @configclass
     class InitialStateCfg(ArticulationCfg.InitialStateCfg):

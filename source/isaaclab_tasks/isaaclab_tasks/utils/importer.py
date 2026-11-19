@@ -15,11 +15,16 @@ import sys
 def import_packages(package_name: str, blacklist_pkgs: list[str] | None = None):
     """Import all sub-packages in a package recursively.
 
-    Only **packages** (directories with ``__init__.py``) are imported — plain
-    ``.py`` modules (e.g. ``env_cfg.py``, ``env.py``) are skipped.  This is
-    sufficient because ``gym.register()`` calls live exclusively in
-    ``__init__.py`` files, and avoids eagerly importing every config module
-    at startup.
+    It is easier to use this function to import all sub-packages in a package recursively
+    than to manually import each sub-package.
+
+    It replaces the need of the following code snippet on the top of each package's ``__init__.py`` file:
+
+    .. code-block:: python
+
+        import .locomotion.velocity
+        import .manipulation.reach
+        import .manipulation.lift
 
     Args:
         package_name: The package name.
@@ -71,26 +76,21 @@ def _walk_packages(
         if any([black_pkg_name in info.name for black_pkg_name in blacklist_pkgs]):
             continue
 
-        # Only import packages (directories with __init__.py), not plain .py
-        # modules.  The walk exists to trigger gym.register() calls which live
-        # exclusively in __init__.py files.  Skipping bare modules avoids
-        # eagerly importing every env_cfg / env / agent config at startup.
-        if not info.ispkg:
-            continue
-
+        # yield the module info
         yield info
 
-        try:
-            __import__(info.name)
-        except Exception:
-            if onerror is not None:
-                onerror(info.name)
+        if info.ispkg:
+            try:
+                __import__(info.name)
+            except Exception:
+                if onerror is not None:
+                    onerror(info.name)
+                else:
+                    raise
             else:
-                raise
-        else:
-            path: list = getattr(sys.modules[info.name], "__path__", [])
+                path: list = getattr(sys.modules[info.name], "__path__", [])
 
-            # don't traverse path items we've seen before
-            path = [p for p in path if not seen(p)]
+                # don't traverse path items we've seen before
+                path = [p for p in path if not seen(p)]
 
-            yield from _walk_packages(path, info.name + ".", onerror, blacklist_pkgs)
+                yield from _walk_packages(path, info.name + ".", onerror, blacklist_pkgs)

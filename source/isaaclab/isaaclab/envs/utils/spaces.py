@@ -3,7 +3,6 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-import inspect
 import json
 from typing import Any
 
@@ -111,15 +110,7 @@ def serialize_space(space: SpaceType) -> str:
     """
     # Gymnasium spaces
     if isinstance(space, gym.spaces.Discrete):
-        return json.dumps(
-            {
-                "type": "gymnasium",
-                "space": "Discrete",
-                "n": int(space.n),
-                "start": int(space.start),
-                "dtype": str(space.dtype),
-            }
-        )
+        return json.dumps({"type": "gymnasium", "space": "Discrete", "n": int(space.n)})
     elif isinstance(space, gym.spaces.Box):
         return json.dumps(
             {
@@ -128,19 +119,10 @@ def serialize_space(space: SpaceType) -> str:
                 "low": space.low.tolist(),
                 "high": space.high.tolist(),
                 "shape": space.shape,
-                "dtype": str(space.dtype),
             }
         )
     elif isinstance(space, gym.spaces.MultiDiscrete):
-        return json.dumps(
-            {
-                "type": "gymnasium",
-                "space": "MultiDiscrete",
-                "nvec": space.nvec.tolist(),
-                "start": space.start.tolist(),
-                "dtype": str(space.dtype),
-            }
-        )
+        return json.dumps({"type": "gymnasium", "space": "MultiDiscrete", "nvec": space.nvec.tolist()})
     elif isinstance(space, gym.spaces.Tuple):
         return json.dumps({"type": "gymnasium", "space": "Tuple", "spaces": tuple(map(serialize_space, space.spaces))})
     elif isinstance(space, gym.spaces.Dict):
@@ -182,27 +164,11 @@ def deserialize_space(string: str) -> gym.spaces.Space:
     # Gymnasium spaces
     if obj["type"] == "gymnasium":
         if obj["space"] == "Discrete":
-            kwargs = {"n": obj["n"], "start": obj.get("start", 0)}
-            # Gymnasium 1.3 added a configurable Discrete dtype. Keep older
-            # supported versions working by only passing it when accepted.
-            if "dtype" in obj and "dtype" in inspect.signature(gym.spaces.Discrete).parameters:
-                kwargs["dtype"] = np.dtype(obj["dtype"])
-            return gym.spaces.Discrete(**kwargs)
+            return gym.spaces.Discrete(n=obj["n"])
         elif obj["space"] == "Box":
-            return gym.spaces.Box(
-                low=np.array(obj["low"]),
-                high=np.array(obj["high"]),
-                shape=obj["shape"],
-                dtype=np.dtype(obj.get("dtype", "float32")),
-            )
+            return gym.spaces.Box(low=np.array(obj["low"]), high=np.array(obj["high"]), shape=obj["shape"])
         elif obj["space"] == "MultiDiscrete":
-            kwargs = {
-                "nvec": np.array(obj["nvec"]),
-                "dtype": np.dtype(obj.get("dtype", "int64")),
-            }
-            if "start" in obj:
-                kwargs["start"] = np.array(obj["start"])
-            return gym.spaces.MultiDiscrete(**kwargs)
+            return gym.spaces.MultiDiscrete(nvec=np.array(obj["nvec"]))
         elif obj["space"] == "Tuple":
             return gym.spaces.Tuple(spaces=tuple(map(deserialize_space, obj["spaces"])))
         elif obj["space"] == "Dict":
@@ -246,7 +212,7 @@ def replace_env_cfg_spaces_with_strings(env_cfg: object) -> object:
 
 
 def replace_strings_with_env_cfg_spaces(env_cfg: object) -> object:
-    """Replace serialized JSON space strings with space definitions in an environment config.
+    """Replace spaces objects with their serialized JSON representations in an environment config.
 
     Args:
         env_cfg: Environment config instance.
@@ -256,14 +222,8 @@ def replace_strings_with_env_cfg_spaces(env_cfg: object) -> object:
     """
     for attr in ["observation_space", "action_space", "state_space"]:
         if hasattr(env_cfg, attr):
-            val = getattr(env_cfg, attr)
-            if isinstance(val, str):
-                setattr(env_cfg, attr, deserialize_space(val))
+            setattr(env_cfg, attr, deserialize_space(getattr(env_cfg, attr)))
     for attr in ["observation_spaces", "action_spaces"]:
         if hasattr(env_cfg, attr):
-            setattr(
-                env_cfg,
-                attr,
-                {k: deserialize_space(v) if isinstance(v, str) else v for k, v in getattr(env_cfg, attr).items()},
-            )
+            setattr(env_cfg, attr, {k: deserialize_space(v) for k, v in getattr(env_cfg, attr).items()})
     return env_cfg

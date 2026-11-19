@@ -4,6 +4,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
 """Various recorder terms that can be used in the environment."""
 
-from isaaclab.utils.module import lazy_export
-
-lazy_export()
+from .recorders import *
+from .recorders_cfg import *

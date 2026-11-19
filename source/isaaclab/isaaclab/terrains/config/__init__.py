@@ -5,6 +5,4 @@
 
 """Pre-defined terrain configurations for the terrain generator."""
 
-from ...utils.module import lazy_export
-
-lazy_export()
+from .rough import *  # noqa: F401

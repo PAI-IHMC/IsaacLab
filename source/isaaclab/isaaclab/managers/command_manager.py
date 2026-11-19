@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import inspect
+import weakref
 from abc import abstractmethod
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
@@ -15,12 +16,13 @@ from typing import TYPE_CHECKING
 import torch
 from prettytable import PrettyTable
 
-from ..utils import index_fill_, instantiate
+import omni.kit.app
+
 from .manager_base import ManagerBase, ManagerTermBase
 from .manager_term_cfg import CommandTermCfg
 
 if TYPE_CHECKING:
-    from ..envs import ManagerBasedRLEnv
+    from isaaclab.envs import ManagerBasedRLEnv
 
 
 class CommandTerm(ManagerTermBase):
@@ -47,7 +49,7 @@ class CommandTerm(ManagerTermBase):
 
         # create buffers to store the command
         # -- metrics that can be used for logging
-        self.metrics = {}
+        self.metrics = dict()
         # -- time left before resampling
         self.time_left = torch.zeros(self.num_envs, device=self.device)
         # -- counter for the number of times the command has been resampled within the current episode
@@ -60,11 +62,9 @@ class CommandTerm(ManagerTermBase):
 
     def __del__(self):
         """Unsubscribe from the callbacks."""
-        env = getattr(self, "_env", None)
-        sim = getattr(env, "sim", None)
-        registry = getattr(sim, "vis_marker_registry", None)
-        if registry is not None:
-            registry.clear_debug_vis_callback(self)
+        if self._debug_vis_handle:
+            self._debug_vis_handle.unsubscribe()
+            self._debug_vis_handle = None
 
     """
     Properties
@@ -104,15 +104,21 @@ class CommandTerm(ManagerTermBase):
         self._set_debug_vis_impl(debug_vis)
         # toggle debug visualization handles
         if debug_vis:
+            # create a subscriber for the post update event if it doesn't exist
             if self._debug_vis_handle is None:
-                self._debug_vis_handle = self._env.sim.vis_marker_registry.add_debug_vis_callback(self)
+                app_interface = omni.kit.app.get_app_interface()
+                self._debug_vis_handle = app_interface.get_post_update_event_stream().create_subscription_to_pop(
+                    lambda event, obj=weakref.proxy(self): obj._debug_vis_callback(event)
+                )
         else:
             # remove the subscriber if it exists
-            self._env.sim.vis_marker_registry.clear_debug_vis_callback(self)
+            if self._debug_vis_handle is not None:
+                self._debug_vis_handle.unsubscribe()
+                self._debug_vis_handle = None
         # return success
         return True
 
-    def reset(self, env_ids: Sequence[int] | slice | None = None) -> dict[str, torch.Tensor]:
+    def reset(self, env_ids: Sequence[int] | None = None) -> dict[str, float]:
         """Reset the command generator and log metrics.
 
         This function resets the command counter and resamples the command. It should be called
@@ -132,12 +138,12 @@ class CommandTerm(ManagerTermBase):
         extras = {}
         for metric_name, metric_value in self.metrics.items():
             # compute the mean metric value
-            extras[metric_name] = torch.mean(metric_value[env_ids])
+            extras[metric_name] = torch.mean(metric_value[env_ids]).item()
             # reset the metric value
-            index_fill_(metric_value, env_ids, 0.0)
+            metric_value[env_ids] = 0.0
 
         # set the command counter to zero
-        index_fill_(self.command_counter, env_ids, 0)
+        self.command_counter[env_ids] = 0
         # resample the command
         self._resample(env_ids)
 
@@ -164,17 +170,16 @@ class CommandTerm(ManagerTermBase):
     Helper functions.
     """
 
-    def _resample(self, env_ids: Sequence[int] | slice):
+    def _resample(self, env_ids: Sequence[int]):
         """Resample the command.
 
         This function resamples the command and time for which the command is applied for the
         specified environment indices.
 
         Args:
-            env_ids: Environment slice or device-resident indices to resample.
+            env_ids: The list of environment IDs to resample.
         """
-        num_envs = len(range(self.num_envs)[env_ids]) if isinstance(env_ids, slice) else len(env_ids)
-        if num_envs != 0:
+        if len(env_ids) != 0:
             # resample the time left before resampling
             self.time_left[env_ids] = self.time_left[env_ids].uniform_(*self.cfg.resampling_time_range)
             # resample the command
@@ -192,7 +197,7 @@ class CommandTerm(ManagerTermBase):
         raise NotImplementedError
 
     @abstractmethod
-    def _resample_command(self, env_ids: Sequence[int] | slice):
+    def _resample_command(self, env_ids: Sequence[int]):
         """Resample the command for the specified environments."""
         raise NotImplementedError
 
@@ -243,7 +248,7 @@ class CommandManager(ManagerBase):
             env: The environment instance.
         """
         # create buffers to parse and store terms
-        self._terms: dict[str, CommandTerm] = {}
+        self._terms: dict[str, CommandTerm] = dict()
 
         # call the base class constructor (this prepares the terms)
         super().__init__(cfg, env)
@@ -327,7 +332,7 @@ class CommandManager(ManagerBase):
         for term in self._terms.values():
             term.set_debug_vis(debug_vis)
 
-    def reset(self, env_ids: Sequence[int] | slice | None = None) -> dict[str, torch.Tensor]:
+    def reset(self, env_ids: Sequence[int] | None = None) -> dict[str, torch.Tensor]:
         """Reset the command terms and log their metrics.
 
         This function resets the command counter and resamples the command for each term. It should be called
@@ -411,7 +416,7 @@ class CommandManager(ManagerBase):
                     f" Received: '{type(term_cfg)}'."
                 )
             # create the action term
-            term = instantiate(term_cfg, self._env)
+            term = term_cfg.class_type(term_cfg, self._env)
             # sanity check if term is valid type
             if not isinstance(term, CommandTerm):
                 raise TypeError(f"Returned object for the term '{term_name}' is not of type CommandType.")

@@ -13,31 +13,36 @@ please check: https://www.youtube.com/watch?v=vLk-f9LWj48&ab_channel=NVIDIAOmniv
 .. code-block:: bash
 
     # Usage
-    uv run python source/isaaclab/test/markers/check_markers_visibility.py
+    ./isaaclab.sh -p source/isaaclab/test/markers/check_markers_visibility.py
 
 """
 
-from __future__ import annotations
+"""Launch Isaac Sim Simulator first."""
+
 
 import argparse
 
-from isaaclab.app import add_launcher_args, launch_simulation
+from isaaclab.app import AppLauncher
 
+# add argparse arguments
 parser = argparse.ArgumentParser(description="Check if the debug markers are visible from the camera.")
 parser.add_argument("--num_envs", type=int, default=2, help="Number of environments to spawn.")
-add_launcher_args(parser)
+# append AppLauncher cli args
+AppLauncher.add_app_launcher_args(parser)
+# parse the arguments
 args_cli = parser.parse_args()
 
-from typing import TYPE_CHECKING
+# launch omniverse app
+app_launcher = AppLauncher(args_cli)
+simulation_app = app_launcher.app
+
+"""Rest everything follows."""
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg
-from isaaclab.scene import InteractiveSceneCfg
+from isaaclab.scene import InteractiveScene, InteractiveSceneCfg
 from isaaclab.sensors import RayCasterCfg, patterns
-from isaaclab.utils import configclass, instantiate, replace
-
-if TYPE_CHECKING:
-    from isaaclab.scene import InteractiveScene
+from isaaclab.utils import configclass
 
 ##
 # Pre-defined configs
@@ -58,7 +63,7 @@ class SensorsSceneCfg(InteractiveSceneCfg):
     )
 
     # robot
-    robot: ArticulationCfg = replace(ANYMAL_C_CFG, prim_path="{ENV_REGEX_NS}/Robot")
+    robot: ArticulationCfg = ANYMAL_C_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
     # sensors
     height_scanner = RayCasterCfg(
@@ -84,21 +89,21 @@ def run_simulator(
     count = 0
 
     # Simulate physics
-    while sim.is_running():
+    while simulation_app.is_running():
         # Reset
         if count % 500 == 0:
             # reset counter
             count = 0
             # reset the scene entities
             # root state
-            root_state = scene["robot"].data.default_root_state.torch.clone()
+            root_state = scene["robot"].data.default_root_state.clone()
             root_state[:, :3] += scene.env_origins
             scene["robot"].write_root_pose_to_sim(root_state[:, :7])
             scene["robot"].write_root_velocity_to_sim(root_state[:, 7:])
             # set joint positions with some noise
             joint_pos, joint_vel = (
-                scene["robot"].data.default_joint_pos.torch.clone(),
-                scene["robot"].data.default_joint_vel.torch.clone(),
+                scene["robot"].data.default_joint_pos.clone(),
+                scene["robot"].data.default_joint_vel.clone(),
             )
             scene["robot"].write_joint_state_to_sim(joint_pos, joint_vel)
             # clear internal buffers
@@ -123,18 +128,24 @@ def run_simulator(
 def main():
     """Main function."""
 
-    sim_cfg = sim_utils.SimulationCfg(dt=0.005, device=args_cli.device)
-    with launch_simulation(sim_cfg, args_cli):
-        sim = sim_utils.SimulationContext(sim_cfg)
-        # Set main camera
-        sim.set_camera_view(eye=[3.5, 3.5, 3.5], target=[0.0, 0.0, 0.0])
-        # design scene
-        scene_cfg = SensorsSceneCfg(num_envs=args_cli.num_envs, env_spacing=2.0)
-        scene = instantiate(scene_cfg)
-        sim.reset()
-        print("[INFO]: Setup complete...")
-        run_simulator(sim, scene)
+    # Initialize the simulation context
+    sim_cfg = sim_utils.SimulationCfg(dt=0.005)
+    sim = sim_utils.SimulationContext(sim_cfg)
+    # Set main camera
+    sim.set_camera_view(eye=[3.5, 3.5, 3.5], target=[0.0, 0.0, 0.0])
+    # design scene
+    scene_cfg = SensorsSceneCfg(num_envs=args_cli.num_envs, env_spacing=2.0)
+    scene = InteractiveScene(scene_cfg)
+    # Play the simulator
+    sim.reset()
+    # Now we are ready!
+    print("[INFO]: Setup complete...")
+    # Run the simulator
+    run_simulator(sim, scene)
 
 
 if __name__ == "__main__":
+    # run the main function
     main()
+    # close sim app
+    simulation_app.close()

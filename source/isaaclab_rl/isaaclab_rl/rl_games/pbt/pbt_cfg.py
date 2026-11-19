@@ -53,13 +53,11 @@ class PbtCfg:
     """Lower and upper bound of multiplicative change factor (sampled in [change_min, change_max])."""
 
     mutation: dict[str, str] = {}
-    """Mutation strings indicating which parameter will be mutated when pbt restart.
-
-    Example::
-
+    """Mutation strings indicating which parameter will be mutated when pbt restart
+    example:
         {
-            "agent.params.config.learning_rate": "mutate_float",
-            "agent.params.config.grad_norm": "mutate_float",
-            "agent.params.config.entropy_coef": "mutate_float",
+            "agent.params.config.learning_rate": "mutate_float"
+            "agent.params.config.grad_norm": "mutate_float"
+            "agent.params.config.entropy_coef": "mutate_float"
         }
     """

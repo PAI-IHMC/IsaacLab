@@ -12,9 +12,6 @@ The following configuration parameters are available:
 Reference: https://github.com/RethinkRobotics/sawyer_robot
 """
 
-from isaaclab_newton.sim.schemas import NewtonArticulationCfg
-from isaaclab_physx.sim.schemas import PhysxArticulationCfg, PhysxRigidBodyCfg
-
 import isaaclab.sim as sim_utils
 from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets.articulation import ArticulationCfg
@@ -27,13 +24,13 @@ from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 SAWYER_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
         usd_path=f"{ISAAC_NUCLEUS_DIR}/Robots/RethinkRobotics/Sawyer/sawyer_instanceable.usd",
-        rigid_props=PhysxRigidBodyCfg(disable_gravity=False, max_depenetration_velocity=5.0),
-        articulation_props=[
-            PhysxArticulationCfg(
-                enabled_self_collisions=True, solver_position_iteration_count=8, solver_velocity_iteration_count=0
-            ),
-            NewtonArticulationCfg(self_collision_enabled=True),
-        ],
+        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+            disable_gravity=False,
+            max_depenetration_velocity=5.0,
+        ),
+        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+            enabled_self_collisions=True, solver_position_iteration_count=8, solver_velocity_iteration_count=0
+        ),
         activate_contact_sensors=False,
     ),
     init_state=ArticulationCfg.InitialStateCfg(
@@ -51,13 +48,13 @@ SAWYER_CFG = ArticulationCfg(
     actuators={
         "head": ImplicitActuatorCfg(
             joint_names_expr=["head_pan"],
-            joint_effort_limit=8.0,
+            effort_limit_sim=8.0,
             stiffness=800.0,
             damping=40.0,
         ),
         "arm": ImplicitActuatorCfg(
             joint_names_expr=["right_j[0-6]"],
-            joint_effort_limit={
+            effort_limit_sim={
                 "right_j[0-1]": 80.0,
                 "right_j[2-3]": 40.0,
                 "right_j[4-6]": 9.0,

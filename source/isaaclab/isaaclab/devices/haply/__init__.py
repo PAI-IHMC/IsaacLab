@@ -5,6 +5,6 @@
 
 """Haply device interface for teleoperation."""
 
-from ...utils.module import lazy_export
+from .se3_haply import HaplyDevice, HaplyDeviceCfg
 
-lazy_export()
+__all__ = ["HaplyDevice", "HaplyDeviceCfg"]

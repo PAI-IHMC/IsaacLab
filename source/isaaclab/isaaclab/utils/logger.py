@@ -58,9 +58,8 @@ def configure_logging(
         The root logger.
     """
     root_logger = logging.getLogger()
-    # set root logger to the configured level to suppress third-party debug/info noise;
-    # isaaclab's own loggers inherit this level unless overridden
-    root_logger.setLevel(logging_level)
+    # the root logger must be the lowest level to ensure that all messages are logged
+    root_logger.setLevel(logging.DEBUG)
 
     # remove existing handlers
     # Note: iterate over a copy [:] to avoid modifying list during iteration

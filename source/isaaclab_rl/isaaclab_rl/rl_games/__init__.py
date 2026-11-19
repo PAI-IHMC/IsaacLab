@@ -5,6 +5,5 @@
 
 """Wrappers and utilities to configure an environment for rl-games library."""
 
-from isaaclab.utils.module import lazy_export
-
-lazy_export()
+from .pbt import *
+from .rl_games import *

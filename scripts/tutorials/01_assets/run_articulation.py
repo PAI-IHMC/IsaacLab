@@ -8,24 +8,27 @@
 .. code-block:: bash
 
     # Usage
-    uv run python scripts/tutorials/01_assets/run_articulation.py
+    ./isaaclab.sh -p scripts/tutorials/01_assets/run_articulation.py
 
 """
 
-"""Parse the command-line arguments first."""
+"""Launch Isaac Sim Simulator first."""
 
 
 import argparse
 
-from isaaclab.app import add_launcher_args, launch_simulation
-from isaaclab.utils import clone
+from isaaclab.app import AppLauncher
 
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Tutorial on spawning and interacting with an articulation.")
-# append simulation launcher cli args
-add_launcher_args(parser)
+# append AppLauncher cli args
+AppLauncher.add_app_launcher_args(parser)
 # parse the arguments
 args_cli = parser.parse_args()
+
+# launch omniverse app
+app_launcher = AppLauncher(args_cli)
+simulation_app = app_launcher.app
 
 """Rest everything follows."""
 
@@ -59,7 +62,7 @@ def design_scene() -> tuple[dict, list[list[float]]]:
     sim_utils.create_prim("/World/Origin2", "Xform", translation=origins[1])
 
     # Articulation
-    cartpole_cfg = clone(CARTPOLE_CFG)
+    cartpole_cfg = CARTPOLE_CFG.copy()
     cartpole_cfg.prim_path = "/World/Origin.*/Robot"
     cartpole = Articulation(cfg=cartpole_cfg)
 
@@ -78,7 +81,7 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
     sim_dt = sim.get_physics_dt()
     count = 0
     # Simulation loop
-    while sim.is_running():
+    while simulation_app.is_running():
         # Reset
         if count % 500 == 0:
             # reset counter
@@ -87,27 +90,22 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
             # root state
             # we offset the root state by the origin since the states are written in simulation world frame
             # if this is not done, then the robots will be spawned at the (0, 0, 0) of the simulation world
-            root_pose = robot.data.default_root_pose.torch.clone()
-            root_pose[:, :3] += origins
-            robot.write_root_pose_to_sim_index(root_pose=root_pose)
-            root_vel = robot.data.default_root_vel.torch.clone()
-            robot.write_root_velocity_to_sim_index(root_velocity=root_vel)
+            root_state = robot.data.default_root_state.clone()
+            root_state[:, :3] += origins
+            robot.write_root_pose_to_sim(root_state[:, :7])
+            robot.write_root_velocity_to_sim(root_state[:, 7:])
             # set joint positions with some noise
-            joint_pos, joint_vel = (
-                robot.data.default_joint_pos.torch.clone(),
-                robot.data.default_joint_vel.torch.clone(),
-            )
+            joint_pos, joint_vel = robot.data.default_joint_pos.clone(), robot.data.default_joint_vel.clone()
             joint_pos += torch.rand_like(joint_pos) * 0.1
-            robot.write_joint_position_to_sim_index(position=joint_pos)
-            robot.write_joint_velocity_to_sim_index(velocity=joint_vel)
+            robot.write_joint_state_to_sim(joint_pos, joint_vel)
             # clear internal buffers
             robot.reset()
             print("[INFO]: Resetting robot state...")
         # Apply random action
         # -- generate random joint efforts
-        efforts = torch.randn_like(robot.data.joint_pos.torch) * 5.0
+        efforts = torch.randn_like(robot.data.joint_pos) * 5.0
         # -- apply action to the robot
-        robot.actuators.target_command.set_effort_index(value=efforts)
+        robot.set_joint_effort_target(efforts)
         # -- write data to sim
         robot.write_data_to_sim()
         # Perform step
@@ -120,25 +118,24 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
 
 def main():
     """Main function."""
-    # Configure the simulation
+    # Load kit helper
     sim_cfg = sim_utils.SimulationCfg(device=args_cli.device)
-    # Launch the simulator runtime that the configuration needs
-    with launch_simulation(sim_cfg, args_cli):
-        # Initialize the simulation context
-        sim = SimulationContext(sim_cfg)
-        # Set main camera
-        sim.set_camera_view([2.5, 0.0, 4.0], [0.0, 0.0, 2.0])
-        # Design scene
-        scene_entities, scene_origins = design_scene()
-        scene_origins = torch.tensor(scene_origins, device=sim.device)
-        # Play the simulator
-        sim.reset()
-        # Now we are ready!
-        print("[INFO]: Setup complete...")
-        # Run the simulator
-        run_simulator(sim, scene_entities, scene_origins)
+    sim = SimulationContext(sim_cfg)
+    # Set main camera
+    sim.set_camera_view([2.5, 0.0, 4.0], [0.0, 0.0, 2.0])
+    # Design scene
+    scene_entities, scene_origins = design_scene()
+    scene_origins = torch.tensor(scene_origins, device=sim.device)
+    # Play the simulator
+    sim.reset()
+    # Now we are ready!
+    print("[INFO]: Setup complete...")
+    # Run the simulator
+    run_simulator(sim, scene_entities, scene_origins)
 
 
 if __name__ == "__main__":
     # run the main function
     main()
+    # close sim app
+    simulation_app.close()

@@ -9,15 +9,15 @@ import os
 
 import omni
 import omni.kit.commands
+from isaacsim.core.utils.extensions import enable_extension
 from pxr import Gf, Tf, Usd, UsdGeom, UsdPhysics, UsdUtils
 
-from ..schemas import schemas
-from ..schemas.schemas_cfg import SchemaFragment
-from ..spawners.utils import apply_schema_props
-from ..utils import delete_prim, enable_extension, export_prim_to_file
-from .asset_converter_base import AssetConverterBase
-from .mesh_converter_cfg import MeshConverterCfg
+from isaaclab.sim.converters.asset_converter_base import AssetConverterBase
+from isaaclab.sim.converters.mesh_converter_cfg import MeshConverterCfg
+from isaaclab.sim.schemas import schemas
+from isaaclab.sim.utils import delete_prim, export_prim_to_file
 
+# import logger
 logger = logging.getLogger(__name__)
 
 
@@ -82,7 +82,8 @@ class MeshConverter(AssetConverterBase):
             RuntimeError: If the conversion using the Omniverse asset converter fails.
         """
         # resolve mesh name and format
-        mesh_file_basename = os.path.splitext(os.path.basename(cfg.asset_path))[0]
+        mesh_file_basename, mesh_file_format = os.path.basename(cfg.asset_path).split(".")
+        mesh_file_format = mesh_file_format.lower()
 
         # Check if mesh_file_basename is a valid USD identifier
         if not Tf.IsValidIdentifier(mesh_file_basename):
@@ -122,33 +123,17 @@ class MeshConverter(AssetConverterBase):
         # Move all meshes to underneath new Xform
         for child_mesh_prim in geom_prim.GetChildren():
             if child_mesh_prim.GetTypeName() == "Mesh":
-                # Collider properties such as offset, scale, etc. anchor at this mesh prim.
+                # Apply collider properties to mesh
                 if cfg.collision_props is not None:
-                    apply_schema_props(
-                        cfg.collision_props,
-                        str(child_mesh_prim.GetPath()),
-                        schemas.apply_collision_properties,
-                        schemas.define_collision_properties,
-                        stage,
+                    # -- Collider properties such as offset, scale, etc.
+                    schemas.define_collision_properties(
+                        prim_path=child_mesh_prim.GetPath(), cfg=cfg.collision_props, stage=stage
                     )
                 # Add collision mesh
                 if cfg.mesh_collision_props is not None:
-                    # Transition bridge: route a fragment (or list of fragments) through the new
-                    # ``apply_mesh_collision_properties`` family writer; otherwise fall back to the
-                    # legacy single-cfg ``define_mesh_collision_properties`` path.
-                    mesh_collision_frags = (
-                        cfg.mesh_collision_props
-                        if isinstance(cfg.mesh_collision_props, (list, tuple))
-                        else [cfg.mesh_collision_props]
+                    schemas.define_mesh_collision_properties(
+                        prim_path=child_mesh_prim.GetPath(), cfg=cfg.mesh_collision_props, stage=stage
                     )
-                    if all(isinstance(f, SchemaFragment) for f in mesh_collision_frags):
-                        schemas.apply_mesh_collision_properties(
-                            prim_path=child_mesh_prim.GetPath(), fragments=mesh_collision_frags, stage=stage
-                        )
-                    else:
-                        schemas.define_mesh_collision_properties(
-                            prim_path=child_mesh_prim.GetPath(), cfg=cfg.mesh_collision_props, stage=stage
-                        )
         # Delete the old Xform and make the new Xform the default prim
         stage.SetDefaultPrim(xform_prim)
         # Apply default Xform rotation to mesh -> enable to set rotation and scale
@@ -172,7 +157,7 @@ class MeshConverter(AssetConverterBase):
         translate_op.Set(Gf.Vec3d(*cfg.translation))
         # rotation
         orient_op = geom_xform.AddOrientOp(UsdGeom.XformOp.PrecisionDouble)
-        orient_op.Set(Gf.Quatd(cfg.rotation[3], cfg.rotation[0], cfg.rotation[1], cfg.rotation[2]))
+        orient_op.Set(Gf.Quatd(*cfg.rotation))
         # scale
         scale_op = geom_xform.AddScaleOp(UsdGeom.XformOp.PrecisionDouble)
         scale_op.Set(Gf.Vec3d(*cfg.scale))
@@ -194,21 +179,15 @@ class MeshConverter(AssetConverterBase):
             geom_undef_prim.GetReferences().AddReference(self.usd_instanceable_meshes_path, primPath=geom_prim_path)
             geom_undef_prim.SetInstanceable(True)
 
-        # Mass and rigid body properties go on the top-level prim after everything else so that
-        # instances of this asset do not unintentionally share them.
-        xform_prim_path = str(xform_prim.GetPath())
+        # Apply mass and rigid body properties after everything else
+        # Properties are applied to the top level prim to avoid the case where all instances of this
+        #   asset unintentionally share the same rigid body properties
+        # apply mass properties
         if cfg.mass_props is not None:
-            apply_schema_props(
-                cfg.mass_props, xform_prim_path, schemas.apply_mass_properties, schemas.define_mass_properties, stage
-            )
+            schemas.define_mass_properties(prim_path=xform_prim.GetPath(), cfg=cfg.mass_props, stage=stage)
+        # apply rigid body properties
         if cfg.rigid_props is not None:
-            apply_schema_props(
-                cfg.rigid_props,
-                xform_prim_path,
-                schemas.apply_rigid_body_properties,
-                schemas.define_rigid_body_properties,
-                stage,
-            )
+            schemas.define_rigid_body_properties(prim_path=xform_prim.GetPath(), cfg=cfg.rigid_props, stage=stage)
 
         # Save changes to USD stage
         stage.Save()
@@ -240,10 +219,10 @@ class MeshConverter(AssetConverterBase):
         """
         enable_extension("omni.kit.asset_converter")
 
-        import omni.kit.asset_converter as kit_asset_converter
+        import omni.kit.asset_converter
 
         # Create converter context
-        converter_context = kit_asset_converter.AssetConverterContext()
+        converter_context = omni.kit.asset_converter.AssetConverterContext()
         # Set up converter settings
         # Don't import/export materials
         converter_context.ignore_materials = not load_materials
@@ -253,14 +232,14 @@ class MeshConverter(AssetConverterBase):
         # Merge all meshes into one
         converter_context.merge_all_meshes = True
         # Sets world units to meters, this will also scale asset if it's centimeters model.
-        # This does not work right now :( so we need to scale the mesh manually
+        # This does not work right now :(, so we need to scale the mesh manually
         converter_context.use_meter_as_world_unit = True
         converter_context.baking_scales = True
         # Uses double precision for all transform ops.
         converter_context.use_double_precision_to_usd_transform_op = True
 
         # Create converter task
-        instance = kit_asset_converter.get_instance()
+        instance = omni.kit.asset_converter.get_instance()
         task = instance.create_converter_task(in_file, out_file, None, converter_context)
         # Start conversion task and wait for it to finish
         success = await task.wait_until_finished()

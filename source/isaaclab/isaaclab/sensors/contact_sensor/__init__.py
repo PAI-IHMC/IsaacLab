@@ -5,6 +5,6 @@
 
 """Sub-module for rigid contact sensor."""
 
-from ...utils.module import lazy_export
-
-lazy_export()
+from .contact_sensor import ContactSensor
+from .contact_sensor_cfg import ContactSensorCfg
+from .contact_sensor_data import ContactSensorData

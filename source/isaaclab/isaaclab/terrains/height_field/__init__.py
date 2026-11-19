@@ -25,6 +25,14 @@ the corresponding x and y coordinates.
 
 """
 
-from ...utils.module import lazy_export
-
-lazy_export()
+from .hf_terrains_cfg import (
+    HfDiscreteObstaclesTerrainCfg,
+    HfInvertedPyramidSlopedTerrainCfg,
+    HfInvertedPyramidStairsTerrainCfg,
+    HfPyramidSlopedTerrainCfg,
+    HfPyramidStairsTerrainCfg,
+    HfRandomUniformTerrainCfg,
+    HfSteppingStonesTerrainCfg,
+    HfTerrainBaseCfg,
+    HfWaveTerrainCfg,
+)

@@ -5,6 +5,6 @@
 
 """Sub-module for rigid object assets."""
 
-from ...utils.module import lazy_export
-
-lazy_export()
+from .rigid_object import RigidObject
+from .rigid_object_cfg import RigidObjectCfg
+from .rigid_object_data import RigidObjectData

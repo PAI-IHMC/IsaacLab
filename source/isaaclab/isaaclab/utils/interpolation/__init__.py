@@ -7,6 +7,4 @@
 Submodule for different interpolation methods.
 """
 
-from ..module import lazy_export
-
-lazy_export()
+from .linear_interpolation import LinearInterpolation
