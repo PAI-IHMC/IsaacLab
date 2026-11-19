@@ -58,6 +58,9 @@ exts."omni.kit.widget.toolbar".PlayButton.enabled = false
 # disable replicator orchestrator for better runtime perf
 exts."omni.replicator.core".Orchestrator.enabled = false
 
+# Run telemetry startup serially: its background startup tasks randomly segfault in getenv (~1 in 70 launches)
+exts."omni.kit.telemetry".skipDeferredStartup = true
+
 [settings.app.settings]
 persistent = true
 dev_build = false

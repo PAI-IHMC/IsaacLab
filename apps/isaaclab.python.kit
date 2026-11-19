@@ -82,6 +82,7 @@ exts."omni.kit.viewport.window".windowMenu.entryCount = 2 # Allow user to create
 exts."omni.kit.viewport.window".windowMenu.label = "" # Put Viewport menuitem under Window menu
 exts."omni.rtx.window.settings".window_menu = "Window" # Where to put the render settings menuitem
 exts."omni.usd".locking.onClose = false # reduce time it takes to close/create stage
+exts."omni.kit.telemetry".skipDeferredStartup = true # Serial telemetry startup; the parallel one randomly segfaults in getenv
 renderer.asyncInit = true # Don't block while renderer inits
 renderer.scenePartitioning.enabled = true # Enable before RTX initialization so env-root partitions are honored
 renderer.gpuEnumeration.glInterop.enabled = false # Improves startup speed.
