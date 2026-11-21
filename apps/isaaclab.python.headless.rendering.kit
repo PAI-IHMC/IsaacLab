@@ -46,6 +46,7 @@ app.enableDeveloperWarnings = false # disable developer warnings to reduce log n
 app.useFabricSceneDelegate = true
 # Temporary, should be enabled by default in Kit soon
 rtx.hydra.readTransformsFromFabricInRenderDelegate = true
+app.usdrt.population.utils.mergeMaterials = true # Kit 108+ defaults to false, which duplicates instanced meshes per env when each env binds its own copy of a material
 renderer.scenePartitioning.enabled = true # Enable before RTX initialization so env-root partitions are honored
 
 # Disable print outs on extension startup information
